@@ -1,0 +1,7 @@
+SELECT COUNT(*) FROM tbtco AS o
+ INNER JOIN tbtcp AS p ON p~jobname  EQ o~jobname AND
+                          p~jobcount EQ o~jobcount
+ WHERE p~progname EQ @sy-cprog
+   AND o~status EQ 'R'. "RUNNING
+
+"retorno em SY-DBCNT
