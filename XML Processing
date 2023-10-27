@@ -1,0 +1,39 @@
+
+  CALL METHOD cl_gui_frontend_services=>gui_upload
+    EXPORTING
+      filename   = lv_filename
+      filetype   = 'ASC'
+    IMPORTING
+      filelength = lv_filelength
+    CHANGING
+      data_tab   = lt_datatab
+    EXCEPTIONS
+      OTHERS     = 1.
+
+  IF sy-subrc EQ 0.
+    LOOP AT lt_datatab INTO DATA(ls_datatab).
+      lv_xml_field = |{ lv_xml_field }{ ls_datatab }|.
+    ENDLOOP.
+
+    REPLACE ALL OCCURRENCES OF: cl_abap_char_utilities=>cr_lf          IN lv_xml_field WITH ' ',
+                                cl_abap_char_utilities=>newline        IN lv_xml_field WITH ' ',
+                                cl_abap_char_utilities=>horizontal_tab IN lv_xml_field WITH ' ',
+                                cl_abap_char_utilities=>vertical_tab   IN lv_xml_field WITH ' '.
+
+    CREATE OBJECT lc_xml.
+    lc_xml->parse_string( stream = lv_xml_field ).
+
+    CALL METHOD lc_xml->render_2_xstring
+      IMPORTING
+        retcode = lv_subrc
+        stream  = lv_xml_input
+        size    = lv_size.
+
+    IF lv_subrc EQ 0.
+      CALL FUNCTION 'SMUM_XML_PARSE'
+        EXPORTING
+          xml_input = lv_xml_input
+        TABLES
+          xml_table = lt_xml_data
+          return    = lt_return.
+    ENDIF.
