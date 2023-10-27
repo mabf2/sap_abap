@@ -1,0 +1,70 @@
+  PARAMETERS: p_file   TYPE ztb_ctexml_ftp-path,
+              p_folder TYPE ztb_ctexml_ftp-path.
+
+*&---------------------------------------------------------------------*
+*& AT SELECTION-SCREEN
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  PERFORM mc_file CHANGING p_file.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_folder.
+  PERFORM mc_folder CHANGING p_folder.
+
+*&---------------------------------------------------------------------*
+*& Form mc_file
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM mc_file  CHANGING p_file.
+
+  DATA: lv_filename TYPE file_table,
+        lv_rc       TYPE i,
+
+        lt_filetab  TYPE filetable.
+
+  cl_gui_frontend_services=>file_open_dialog(
+    CHANGING
+      file_table              = lt_filetab
+      rc                      = lv_rc
+    EXCEPTIONS
+      file_open_dialog_failed = 1
+      cntl_error              = 2
+      error_no_gui            = 3
+      not_supported_by_gui    = 4
+      OTHERS                  = 5 ).
+
+  IF sy-subrc IS INITIAL.
+    READ TABLE lt_filetab INTO lv_filename INDEX 1
+      TRANSPORTING filename.
+
+    IF sy-subrc EQ 0.
+      p_file = lv_filename-filename.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form mc_folder
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM mc_folder  CHANGING p_folder.
+
+  DATA lv_folder   TYPE string.
+
+  CALL METHOD cl_gui_frontend_services=>directory_browse
+    CHANGING
+      selected_folder      = lv_folder
+    EXCEPTIONS
+      cntl_error           = 1
+      error_no_gui         = 2
+      not_supported_by_gui = 3
+      OTHERS               = 4.
+
+  IF sy-subrc NE 0.
+    MESSAGE s398(00) WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE 'W'.
+  ELSE.
+    p_folder = lv_folder.
+  ENDIF.
+
+ENDFORM.
