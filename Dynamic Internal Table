@@ -1,1 +1,470 @@
+*&---------------------------------------------------------------------*
+*& Report ZRFI_APPROVED_CTE
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zrfi_approved_cte LINE-SIZE 46.
 
+INCLUDE: zrfi_approved_cte_top,
+         zrfi_approved_cte_scr,
+         zrfi_approved_cte_frm.
+
+*&---------------------------------------------------------------------*
+*& INITIALIZATION
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+* AT SELECTION-SCREEN
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& START-OF-SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM select_cte.
+  
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_APPROVED_CTE_TOP
+*&---------------------------------------------------------------------*
+TABLES: ska1,
+        csks,
+        ztb_ctexmldoc,
+        ztb_ctexmlpar,
+        ztb_ctexmlicm.
+
+TYPES: BEGIN OF ty_cte_u,
+         cte TYPE ztb_ctexmldoc-cte,
+       END OF ty_cte_u,
+
+       BEGIN OF ty_ncomp,
+         ncomp TYPE ztb_ctexmlval-ncomp,
+         text  TYPE ztb_ctexmlval-ncomp,
+       END OF ty_ncomp,
+
+       BEGIN OF ty_tpmed,
+         tpmed TYPE ztb_ctexmlcrg-tpmed,
+         text  TYPE ztb_ctexmlcrg-tpmed,
+       END OF ty_tpmed,
+
+       tt_ncomp TYPE STANDARD TABLE OF ty_ncomp,
+       tt_tpmed TYPE STANDARD TABLE OF ty_tpmed.
+
+DATA: go_grid      TYPE REF TO cl_gui_alv_grid,
+      go_splitter  TYPE REF TO cl_gui_splitter_container,
+      go_container TYPE REF TO cl_gui_container,
+
+      gs_line      TYPE REF TO data,
+      gs_line1     TYPE REF TO data,
+
+      gt_dyn_fcat  TYPE lvc_t_fcat,
+      gt_dyn_table TYPE REF TO data.
+
+FIELD-SYMBOLS: <fs_line>,
+               <fs_line1>,
+               <fs_dyn_table> TYPE STANDARD TABLE,
+               <fs1>.
+			   
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_APPROVED_CTE_SCR
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-t01.
+  SELECT-OPTIONS: s_cte    FOR ztb_ctexmldoc-cte,
+                  s_demi   FOR ztb_ctexmldoc-demi,
+                  s_shipme FOR ztb_ctexmldoc-shipmentid,
+                  s_credat FOR ztb_ctexmldoc-credat,
+                  s_cnpj   FOR ztb_ctexmlpar-cnpj.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-t02.
+  PARAMETERS: p_sproc RADIOBUTTON GROUP grp1 DEFAULT 'X',
+              p_aprov RADIOBUTTON GROUP grp1.
+SELECTION-SCREEN END OF BLOCK b2.
+
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_APPROVED_CTE_FRM
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Module STATUS_0100 OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+
+  SET PF-STATUS '0100'.
+  SET TITLEBAR '0100'.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*& Module SET_ALV_OBJECTS OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE set_alv_objects OUTPUT.
+
+  PERFORM alvgrid_cte.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'BACK' OR 'LEAV' OR 'CANC'.
+      LEAVE TO SCREEN 0.
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*& Form select_cte
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM select_cte .
+
+  DATA: lt_cte_u  TYPE TABLE OF ty_cte_u,
+        lt_ncomp  TYPE TABLE OF ty_ncomp,
+        lt_tpmed  TYPE TABLE OF ty_tpmed,
+
+        lv_len    TYPE char3,
+        lv_status TYPE ztb_ctexmlbap-status.
+
+  IF p_sproc EQ abap_true.
+    lv_status = space.
+    sy-title  = |{ TEXT-a00 } - { TEXT-t03 }|.
+  ELSE.
+    lv_status = 'A'.
+    sy-title  = |{ TEXT-a00 } - { TEXT-t04 }|.
+  ENDIF.
+
+  SELECT doc~cte, doc~serie, doc~nct, doc~cfop, doc~cmunini,
+         doc~cmunfim, doc~shipmentid, doc~demi, doc~tpserv,
+         doc~tprest, doc~crenam, doc~credat, doc~toma,
+         doc~tppart AS tppartd, par~tppart AS tppartp,
+         par~cnpj, par~nome, icm~cst, icm~bc, icm~picms,
+         icm~vicms, nfe~chave, tmp~xped, tmp~saknr, tmp~kostl,
+         val~ncomp, val~vcomp, crg~tpmed, crg~carga, crg~unidd,
+         d~nftot, d~ntgew, d~brgew, h~sales_channel FROM ztb_ctexmldoc AS doc
+   INNER JOIN ztb_ctexmlbap AS bap ON doc~cte EQ bap~cte
+   INNER JOIN ztb_ctexmlpar AS par ON doc~cte EQ par~cte
+   INNER JOIN ztb_ctexmlicm AS icm ON doc~cte EQ icm~cte
+   INNER JOIN ztb_ctexmlnfe AS nfe ON doc~cte EQ nfe~cte
+   INNER JOIN ztb_ctexmltmp AS tmp ON doc~cte EQ tmp~cte
+   INNER JOIN ztb_ctexmlval AS val ON doc~cte EQ val~cte
+   INNER JOIN ztb_ctexmlcrg AS crg ON doc~cte EQ crg~cte
+   INNER JOIN j_1bnfe_active AS a  ON substring( nfe~chave,1,2 )  EQ a~regio
+                                  AND substring( nfe~chave,3,2 )  EQ a~nfyear
+                                  AND substring( nfe~chave,5,2 )  EQ a~nfmonth
+                                  AND substring( nfe~chave,7,14 ) EQ a~stcd1
+                                  AND substring( nfe~chave,21,2 ) EQ a~model
+                                  AND substring( nfe~chave,23,3 ) EQ a~serie
+                                  AND substring( nfe~chave,26,9 ) EQ a~nfnum9
+                                  AND substring( nfe~chave,35,9 ) EQ a~docnum9
+                                  AND substring( nfe~chave,44,1 ) EQ a~cdv
+   INNER JOIN j_1bnfdoc      AS d  ON a~docnum EQ d~docnum
+   INNER JOIN ztsd_pedecom_h AS h  ON tmp~xped EQ substring( h~ped_ecom, 1, 15 ) "15x35
+   WHERE doc~cte IN @s_cte
+     AND doc~demi IN @s_demi
+     AND doc~shipmentid IN @s_shipme
+     AND doc~credat IN @s_credat
+     AND bap~status EQ @lv_status
+     AND par~cnpj IN @s_cnpj
+    INTO TABLE @DATA(lt_cte).
+
+  LOOP AT lt_cte INTO DATA(ls_cte).
+    "CTE
+    READ TABLE lt_cte_u TRANSPORTING NO FIELDS WITH KEY cte = ls_cte-cte.
+    IF sy-subrc NE 0.
+      APPEND INITIAL LINE TO lt_cte_u ASSIGNING FIELD-SYMBOL(<fs_cte_u>).
+      <fs_cte_u>-cte = ls_cte-cte.
+    ENDIF.
+
+    "Componentes
+    APPEND INITIAL LINE TO lt_ncomp ASSIGNING FIELD-SYMBOL(<fs_ncomp>).
+    <fs_ncomp>-ncomp = |C_{ ls_cte-ncomp }|.
+    <fs_ncomp>-text  = ls_cte-ncomp.
+    CONDENSE <fs_ncomp>-ncomp NO-GAPS.
+
+    "Medidas
+    APPEND INITIAL LINE TO lt_tpmed ASSIGNING FIELD-SYMBOL(<fs_tpmed>).
+    <fs_tpmed>-tpmed = |M_{ ls_cte-tpmed }|.
+    <fs_tpmed>-text  = ls_cte-tpmed.
+    CONDENSE <fs_tpmed>-tpmed NO-GAPS.
+  ENDLOOP.
+
+  SORT: lt_cte   BY cte tppartp,
+        lt_cte_u BY cte,
+        lt_ncomp BY ncomp,
+        lt_tpmed BY tpmed.
+
+  DELETE ADJACENT DUPLICATES FROM: lt_ncomp COMPARING ncomp,
+                                   lt_tpmed COMPARING tpmed.
+
+  PERFORM define_field_catalog USING  lt_ncomp
+                                      lt_tpmed.
+
+  LOOP AT lt_cte_u INTO DATA(ls_cte_u).
+    "Localiza EMIssor
+    READ TABLE lt_cte INTO ls_cte WITH KEY cte     = ls_cte_u-cte
+                                           tppartp = 'EMI'.
+    IF sy-subrc EQ 0.
+      ASSIGN COMPONENT 'CNPJ_E' OF STRUCTURE <fs_line> TO <fs1>.
+      <fs1> = ls_cte-cnpj. UNASSIGN <fs1>.
+
+      ASSIGN COMPONENT 'NOME_E' OF STRUCTURE <fs_line> TO <fs1>.
+      <fs1> = ls_cte-nome. UNASSIGN <fs1>.
+
+      IF ls_cte-tppartd IS NOT INITIAL.
+        READ TABLE lt_cte INTO DATA(ls_toma) WITH KEY cte     = ls_cte-cte
+                                                      tppartp = ls_cte-tppartd
+                                               BINARY SEARCH.
+        IF sy-subrc EQ 0.
+          ASSIGN COMPONENT 'CNPJ_T' OF STRUCTURE <fs_line> TO <fs1>.
+          <fs1> = ls_toma-cnpj. UNASSIGN <fs1>.
+
+          ASSIGN COMPONENT 'NOME_T' OF STRUCTURE <fs_line> TO <fs1>.
+          <fs1> = ls_toma-nome. UNASSIGN <fs1>.
+        ENDIF.
+      ENDIF.
+
+      LOOP AT gt_dyn_fcat INTO DATA(ls_dyn_fcat).
+        IF ls_dyn_fcat-fieldname EQ 'CNPJ_E' OR ls_dyn_fcat-fieldname EQ 'NOME_E' OR
+           ls_dyn_fcat-fieldname EQ 'CNPJ_T' OR ls_dyn_fcat-fieldname EQ 'NOME_T'.
+          CONTINUE.
+        ENDIF.
+
+        IF     ls_dyn_fcat-fieldname(2) EQ 'C_'.
+          READ TABLE lt_ncomp INTO DATA(ls_ncomp) WITH KEY ncomp = ls_dyn_fcat-fieldname(15)
+                                                    BINARY SEARCH.
+
+          READ TABLE lt_cte INTO DATA(ls_cte_) WITH KEY cte   = ls_cte-cte
+                                                        ncomp = ls_ncomp-text.
+          ASSIGN COMPONENT 'VCOMP' OF STRUCTURE ls_cte_ TO FIELD-SYMBOL(<origem>).
+
+        ELSEIF ls_dyn_fcat-fieldname(2) EQ 'M_'.
+          READ TABLE lt_tpmed INTO DATA(ls_tpmed) WITH KEY tpmed = ls_dyn_fcat-fieldname(20)
+                                                    BINARY SEARCH.
+
+          READ TABLE lt_cte INTO ls_cte_ WITH KEY cte   = ls_cte-cte
+                                                  tpmed = ls_tpmed-text.
+          ASSIGN COMPONENT 'CARGA' OF STRUCTURE ls_cte_ TO <origem>.
+
+        ELSE.
+          ASSIGN COMPONENT ls_dyn_fcat-fieldname OF STRUCTURE ls_cte TO <origem>.
+
+        ENDIF.
+
+        IF sy-subrc EQ 0.
+          ASSIGN COMPONENT ls_dyn_fcat-fieldname OF STRUCTURE <fs_line> TO FIELD-SYMBOL(<destin>).
+
+          IF sy-subrc EQ 0        AND
+             <origem> IS ASSIGNED AND
+             <destin> IS ASSIGNED.
+
+            MOVE <origem> TO <destin>.
+            UNASSIGN: <origem>,
+                      <destin>.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+
+      APPEND <fs_line> TO <fs_dyn_table>.
+    ENDIF.
+  ENDLOOP.
+
+  IF lines( <fs_dyn_table> ) EQ 0.
+    MESSAGE TEXT-m01 TYPE 'S' DISPLAY LIKE 'E'.
+  ELSE.
+    CALL SCREEN 0100.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form alvgrid_cte
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM alvgrid_cte .
+
+  DATA: lt_fieldcat      TYPE slis_t_fieldcat_alv,
+        ls_variant       TYPE disvariant,
+        ls_layout        TYPE lvc_s_layo,
+        lt_exclude_funct TYPE ui_functions,
+
+        lv_save          TYPE c VALUE 'A',
+        lv_grid_title    TYPE lvc_title.
+
+  APPEND: cl_gui_alv_grid=>mc_fc_loc_copy_row      TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_delete_row    TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_append_row    TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_insert_row    TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_move_row      TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_copy          TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_cut           TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_paste         TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_paste_new_row TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_loc_undo          TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_info              TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_graph             TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_refresh           TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_detail            TO lt_exclude_funct,
+          cl_gui_alv_grid=>mc_fc_check             TO lt_exclude_funct.
+
+  ls_layout-sel_mode   = 'D'.
+  ls_layout-zebra      = abap_true.
+  ls_layout-cwidth_opt = abap_true.
+
+  ls_variant = sy-repid.
+
+  IF go_grid     IS NOT BOUND AND
+     go_splitter IS NOT BOUND.
+
+    CREATE OBJECT go_splitter
+      EXPORTING
+        parent  = cl_gui_container=>default_screen
+        rows    = 1
+        columns = 1.
+
+    CALL METHOD go_splitter->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_container.
+
+    CREATE OBJECT go_grid
+      EXPORTING
+        i_parent          = go_container
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    go_grid->set_table_for_first_display(
+      EXPORTING
+        is_variant                    = ls_variant
+        i_save                        = lv_save
+        is_layout                     = ls_layout
+        it_toolbar_excluding          = lt_exclude_funct
+      CHANGING
+        it_outtab                     = <fs_dyn_table>
+        it_fieldcatalog               = gt_dyn_fcat
+      EXCEPTIONS
+        invalid_parameter_combination = 1
+        program_error                 = 2
+        too_many_lines                = 3
+        OTHERS                        = 4 ).
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form define_field_catalog
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM define_field_catalog  USING    p_ncomp TYPE tt_ncomp
+                                    p_tpmed TYPE tt_tpmed.
+
+  DATA: lv_fname TYPE lvc_s_fcat-fieldname,
+        lv_coltx TYPE lvc_s_fcat-coltext.
+
+  PERFORM add_field_catalog USING:
+        'CTE'           'X' 'L' '44' 'C' '0' TEXT-a01,
+        'CNPJ_E'        ''  'L' '14' 'C' '0' TEXT-a02,
+        'NOME_E'        ''  'L' '45' 'C' '0' TEXT-a03,
+        'CNPJ_T'        ''  'L' '14' 'C' '0' TEXT-a18,
+        'NOME_T'        ''  'L' '45' 'C' '0' TEXT-a19,
+        'NCT'           ''  'L' '10' 'C' '0' TEXT-a04,
+        'SERIE'         ''  'L' '10' 'C' '0' TEXT-a05,
+        'CFOP'          ''  'L' '10' 'C' '0' TEXT-a17,
+        'CMUNINI'       ''  'L' '10' 'C' '0' TEXT-a24,
+        'CMUNFIM'       ''  'L' '10' 'C' '0' TEXT-a25,
+        'SHIPMENTID'    ''  'L' '15' 'C' '0' TEXT-a06,
+        'CHAVE'         ''  'L' '44' 'C' '0' TEXT-a16,
+        'DEMI'          ''  'L' '15' 'D' '0' TEXT-a07,
+        'TPSERV'        ''  'L' '15' 'C' '0' TEXT-a08,
+        'TPREST'        ''  'R' '15' 'P' '2' TEXT-a09,
+        'CST'           ''  'L' '10' 'C' '0' TEXT-a10,
+        'BC'            ''  'R' '15' 'P' '2' TEXT-a11,
+        'PICMS'         ''  'R' '15' 'P' '2' TEXT-a12,
+        'VICMS'         ''  'R' '15' 'P' '2' TEXT-a13,
+        'XPED'          ''  'R' '15' 'C' '0' TEXT-a26,
+        'SALES_CHANNEL' ''  'L' '10' 'C' '0' TEXT-a27,
+        'SAKNR'         ''  'R' '10' 'C' '0' TEXT-a28,
+        'KOSTL'         ''  'R' '10' 'C' '0' TEXT-a29,
+        'NFTOT'         ''  'R' '18' 'P' '2' TEXT-a30,
+        'NTGEW'         ''  'R' '18' 'P' '2' TEXT-a31,
+        'BRGEW'         ''  'R' '18' 'P' '2' TEXT-a32.
+
+  LOOP AT p_ncomp INTO DATA(ls_ncomp).
+    lv_fname = ls_ncomp-ncomp.
+    lv_coltx = ls_ncomp-text.
+
+    PERFORM add_field_catalog USING lv_fname '' 'R' '15' 'P' '2' lv_coltx.
+  ENDLOOP.
+
+  LOOP AT p_tpmed INTO DATA(ls_tpmed).
+    lv_fname = ls_tpmed-tpmed.
+    lv_coltx = ls_tpmed-text.
+
+    PERFORM add_field_catalog USING lv_fname '' 'R' '20' 'P' '4' lv_coltx.
+  ENDLOOP.
+
+  PERFORM add_field_catalog USING: 'CRENAM' '' 'L' '10' 'C' '0' TEXT-a14,
+                                   'CREDAT' '' 'L' '10' 'D' '0' TEXT-a15.
+
+  CALL METHOD cl_alv_table_create=>create_dynamic_table
+    EXPORTING
+      i_style_table             = 'X'
+      it_fieldcatalog           = gt_dyn_fcat
+    IMPORTING
+      ep_table                  = gt_dyn_table
+    EXCEPTIONS
+      generate_subpool_dir_full = 1
+      OTHERS                    = 2.
+
+  IF sy-subrc EQ 0.
+    ASSIGN gt_dyn_table->* TO <fs_dyn_table>.
+
+    CREATE DATA: gs_line  LIKE LINE OF <fs_dyn_table>,
+                 gs_line1 LIKE LINE OF <fs_dyn_table>.
+    ASSIGN: gs_line->*  TO <fs_line>,
+            gs_line1->* TO <fs_line1>.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form add_field_catalog
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM add_field_catalog USING p_fieldname  TYPE lvc_s_fcat-fieldname
+                             p_key        TYPE lvc_s_fcat-key
+                             p_just       TYPE lvc_s_fcat-just
+                             p_outputlen  TYPE lvc_s_fcat-outputlen
+                             p_inttype    TYPE lvc_s_fcat-inttype
+                             p_decimals   TYPE lvc_s_fcat-decimals
+                             p_coltext    TYPE lvc_s_fcat-coltext.
+
+  APPEND INITIAL LINE TO gt_dyn_fcat ASSIGNING FIELD-SYMBOL(<fs_dyn_fcat>).
+  <fs_dyn_fcat>-fieldname  = p_fieldname.
+  <fs_dyn_fcat>-key        = p_key.
+  <fs_dyn_fcat>-just       = p_just.
+  <fs_dyn_fcat>-outputlen  = p_outputlen.
+  <fs_dyn_fcat>-inttype    = p_inttype.
+  <fs_dyn_fcat>-decimals_o = p_decimals.
+  <fs_dyn_fcat>-decimals   = p_decimals.
+  <fs_dyn_fcat>-coltext    = p_coltext.
+
+  <fs_dyn_fcat>-tabname      = 'LT_CTE'.
+  <fs_dyn_fcat>-col_pos      = lines( gt_dyn_fcat ).
+
+  IF p_inttype = 'P'.
+    <fs_dyn_fcat>-datatype   = 'DEC'.
+  ENDIF.
+
+ENDFORM.
