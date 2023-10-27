@@ -1,0 +1,12 @@
+READ TABLE ctexmllog INTO DATA(ls_ctexmllog) WITH KEY cte = ctexmllog_i-cte
+                                                      pas = ctexmllog_i-pas.
+IF sy-subrc EQ 0.
+  LOOP AT ctexmllog INTO ls_ctexmllog FROM sy-tabix.
+    IF ls_ctexmllog-cte NE ctexmllog_i-cte OR
+       ls_ctexmllog-pas NE ctexmllog_i-pas.
+      EXIT.
+    ENDIF.
+
+lv_num = ls_ctexmllog-num.
+  ENDLOOP.
+ENDIF.
