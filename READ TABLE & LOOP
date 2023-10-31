@@ -7,6 +7,6 @@ IF sy-subrc EQ 0.
       EXIT.
     ENDIF.
 
-lv_num = ls_ctexmllog-num.
+  lv_num = ls_ctexmllog-num.
   ENDLOOP.
 ENDIF.
