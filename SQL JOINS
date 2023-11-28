@@ -1,0 +1,62 @@
+employee;
++--------+----------+---------+--------+
+| emp_id | emp_name | dept_id | salary |
++--------+----------+---------+--------+
+|    103 | Jack     |       1 |   1400 |
+|    104 | John     |       2 |   1450 |
+|    108 | Alan     |       3 |   1150 |
+|    107 | Ram      |    NULL |    600 |
++--------+----------+---------+--------+
+
+department;
++---------+-----------+
+| dept_id | dept_name |
++---------+-----------+
+|       1 | Sales     |
+|       2 | Finance   |
+|       3 | Accounts  |
+|       4 | Marketing |
++---------+-----------+
+
+
+select e.emp_id, e.emp_name, d.dept_name from employee e LEFT JOIN department d on e.dept_id=d.dept_id;
++--------+----------+-----------+
+| emp_id | emp_name | dept_name |
++--------+----------+-----------+
+|    103 | Jack     | Sales     |
+|    104 | John     | Finance   |
+|    108 | Alan     | Accounts  |
+|    107 | Ram      | NULL      |
++--------+----------+-----------+
+
+select e.emp_id, e.emp_name, d.dept_name from employee e RIGHT JOIN department d on e.dept_id=d.dept_id;
++--------+----------+-----------+
+| emp_id | emp_name | dept_name |
++--------+----------+-----------+
+|    103 | Jack     | Sales     |
+|    104 | John     | Finance   |
+|    108 | Alan     | Accounts  |
+|   NULL | NULL     | Marketing |
++--------+----------+-----------+
+
+
+INNER JOIN ON A.KEY EQ B.KEY
+  TRAZ O QUE TEM EM COMUM NOS DOIS
+  
+LEFT JOIN  ON A.KEY EQ B.KEY
+  TRAZ O A COMPLETO E OS CORRESPONDENTES DE B
+  
+LEFT JOIN  ON A.KEY EQ B.KEY WHERE B.KEY IS NULL
+  TRAZ SOMENTE O QUE TEM EM A
+
+RIGHT JOIN ON A.KEY EQ B.KEY
+  TRAZ O B COMPLETO E OS CORRESPONDENTES DE A
+
+RIGHT JOIN ON A.KEY EQ B.KEY WHERE A.KEY IS NULL
+  TRAZ SOMENTE O QUE TEM EM B
+
+FULL OUTER JOIN ON A.KEY EQ B.KEY
+  TRAZ TUDO DE A E B
+
+FULL OUTER JOIN ON A.KEY EQ B.KEY WHERE A.KEY IS NULL OR B.KEY IS NULL
+  TRAZ TUDO DE A E B, EXCETO O QUE TEM EM COMUM
