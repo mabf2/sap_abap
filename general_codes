@@ -1,0 +1,10 @@
+DATA bdcdata_tab TYPE TABLE OF bdcdata WITH EMPTY KEY.
+
+bdcdata_tab = VALUE #(
+   ( program  = 'SAPLSEOD' dynpro   = '1000' dynbegin = 'X' )
+   ( fnam = 'BDC_CURSOR'       fval = 'SEOCLASS-CLSNAME' )
+   ( fnam = 'SEOCLASS-CLSNAME' fval = class_name )
+   ( fnam = 'BDC_OKCODE'       fval = '=WB_DISPLAY' ) ).
+ 
+DATA(opt) = VALUE ctu_params( dismode = 'E'
+                              defsize = 'X' ).
