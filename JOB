@@ -5,3 +5,11 @@ SELECT COUNT(*) FROM tbtco AS o
    AND o~status EQ 'R'. "RUNNING
 
 "retorno em SY-DBCNT
+
+BTCH2170-PRELIM    escalonado P
+BTCH2170-SCHEDUL   liberado   S
+BTCH2170-READY     pronto     Y
+BTCH2170-RUNNING   ativo      R
+
+BTCH2170-FINISHED  concluido  F
+BTCH2170-ABORTED   cancelado  A
