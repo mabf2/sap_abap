@@ -8,3 +8,10 @@ bdcdata_tab = VALUE #(
  
 DATA(opt) = VALUE ctu_params( dismode = 'E'
                               defsize = 'X' ).
+
+DATA: lr_seltab   TYPE RANGE OF ztb_ctexml_ftp-lifnr,
+    lr_seltab = VALUE #(
+           ( sign = 'I'
+             option = 'EQ'
+             low  = p_lifnr
+             high = '' ) ).
