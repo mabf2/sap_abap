@@ -1,0 +1,23 @@
+TYPE-POOL zcte .
+
+TYPES: BEGIN OF zcte_ctexmldoc.
+         INCLUDE STRUCTURE ztb_ctexmldoc.
+TYPES END OF zcte_ctexmldoc.
+
+TYPES: zcte_tctexmldoc TYPE SORTED TABLE OF zcte_ctexmldoc WITH UNIQUE KEY cte.
+
+
+
+include TOP
+*-----------------------------------------------------------------------
+*   Type-Pools
+*-----------------------------------------------------------------------
+TYPE-POOLS: zcte.
+
+FUNCTION zfm_determinetmp.
+*"----------------------------------------------------------------------
+*"*"Interface local:
+*"  IMPORTING
+*"     VALUE(CTEXMLDOC) TYPE  ZCTE_TCTEXMLDOC
+
+LOOP AT ctexmldoc INTO DATA(ls_ctexmldoc).
