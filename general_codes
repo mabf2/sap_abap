@@ -10,8 +10,13 @@ DATA(opt) = VALUE ctu_params( dismode = 'E'
                               defsize = 'X' ).
 
 DATA: lr_seltab   TYPE RANGE OF ztb_ctexml_ftp-lifnr,
-    lr_seltab = VALUE #(
-           ( sign = 'I'
-             option = 'EQ'
-             low  = p_lifnr
-             high = '' ) ).
+      lr_matnr            TYPE RANGE OF mara-matnr.
+
+lr_seltab = VALUE #( ( sign = 'I'
+                       option = 'EQ'
+                       low  = p_lifnr
+                       high = '' ) ).
+
+lr_matnr = VALUE #( FOR mara IN xlips ( sign   = 'I'
+                                        option = 'EQ'
+                                        low    = mara-matnr ) ).
