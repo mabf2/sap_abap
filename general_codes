@@ -5,18 +5,30 @@ bdcdata_tab = VALUE #(
    ( fnam = 'BDC_CURSOR'       fval = 'SEOCLASS-CLSNAME' )
    ( fnam = 'SEOCLASS-CLSNAME' fval = class_name )
    ( fnam = 'BDC_OKCODE'       fval = '=WB_DISPLAY' ) ).
- 
+*
 DATA(opt) = VALUE ctu_params( dismode = 'E'
                               defsize = 'X' ).
-
-DATA: lr_seltab   TYPE RANGE OF ztb_ctexml_ftp-lifnr,
-      lr_matnr            TYPE RANGE OF mara-matnr.
+*
+DATA lr_seltab TYPE RANGE OF ztb_ctexml_ftp-lifnr.
 
 lr_seltab = VALUE #( ( sign = 'I'
                        option = 'EQ'
                        low  = p_lifnr
                        high = '' ) ).
+*
+TYPES: BEGIN OF ty_cfop,
+         cfop TYPE j_1bnflin-cfop,
+       END OF ty_cfop.
 
-lr_matnr = VALUE #( FOR mara IN xlips ( sign   = 'I'
-                                        option = 'EQ'
-                                        low    = mara-matnr ) ).
+DATA: lv_value TYPE char100,
+      lt_cfop  TYPE TABLE OF ty_cfop,
+      lr_cfop  TYPE RANGE OF j_1bagn-cfop.
+
+lv_value = '5152;6152'.
+SPLIT lv_value AT ';' INTO TABLE lt_cfop.
+
+lr_cfop = VALUE #( FOR lw_cfop IN lt_cfop ( sign   = 'I'
+                                            option = 'EQ'
+                                            low    = lw_cfop-cfop
+                                            high   = space ) ).
+*
