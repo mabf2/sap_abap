@@ -32,3 +32,9 @@ lr_cfop = VALUE #( FOR lw_cfop IN lt_cfop ( sign   = 'I'
                                             low    = lw_cfop-cfop
                                             high   = space ) ).
 *
+lr_docnum = VALUE #( FOR lw_data IN gt_data ( sign   = 'I'
+                                              option = 'EQ'
+                                              low    = COND #( WHEN lw_data-sel EQ abap_true
+                                                               THEN lw_data-docnum
+                                                               ELSE space )
+                                              high   = space ) ).
