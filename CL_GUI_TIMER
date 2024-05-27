@@ -1,0 +1,996 @@
+*&---------------------------------------------------------------------*
+*& T01	Parâmetros de seleção
+*& T02	Montando dados!
+*& 
+*& P_INTER	Refresh (seg.)
+*& S_LIFNR	Fornecedor
+*& 
+*& 2 CUSTOM CONTROL NA TELA 9000
+*& CC_XML e
+*& CC_TXT
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Report ZRFI_DOWNLOADTOPROC_CTE
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zrfi_downloadtoproc_cte LINE-SIZE 285 MESSAGE-ID sy.
+
+INCLUDE: zrfi_downloadtoproc_cte_top,
+         zrfi_downloadtoproc_cte_scr,
+         zrfi_downloadtoproc_cte_frm,
+         zrfi_cteutils_frm.
+
+*&---------------------------------------------------------------------*
+*& INITIALIZATION
+*&---------------------------------------------------------------------*
+INITIALIZATION.
+  PERFORM: initialization.
+
+*&---------------------------------------------------------------------*
+*& AT SELECTION-SCREEN
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_lifnr-low.
+  PERFORM search_lifnr CHANGING s_lifnr-low.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR s_lifnr-high.
+  PERFORM search_lifnr CHANGING s_lifnr-high.
+
+*&---------------------------------------------------------------------*
+*& START-OF-SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  CALL SCREEN 9000.
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_DOWNLOADTOPROC_CTE_TOP
+*&---------------------------------------------------------------------*
+TABLES ztb_ctexml_ftp.
+
+TYPES: BEGIN OF ty_ctexml_ftp.
+         INCLUDE STRUCTURE ztb_ctexml_ftp.
+TYPES:   name1 TYPE lfa1-name1,
+       END OF ty_ctexml_ftp,
+
+       BEGIN OF ty_alvgrid_xml,
+         lifnr       TYPE lfa1-lifnr,
+         name1       TYPE lfa1-name1,
+         total       TYPE i,
+         total_old   TYPE i,
+         total_trash TYPE i,
+         jobs        TYPE i,
+         celltab     TYPE lvc_t_styl,
+       END OF ty_alvgrid_xml,
+
+       BEGIN OF ty_alvgrid_txt,
+         name    TYPE eps2fili-name,
+         celltab TYPE lvc_t_styl,
+       END OF ty_alvgrid_txt,
+
+       BEGIN OF ty_filesftp,
+         lifnr       TYPE lfa1-lifnr,
+         total       TYPE i,
+         total_trash TYPE i,
+       END OF ty_filesftp,
+
+       BEGIN OF ty_line,
+         line(255) TYPE c,
+       END OF ty_line.
+
+DATA: BEGIN OF ty_return,
+        line(255) TYPE c,
+      END OF ty_return,
+
+      gt_alvgrid_xml TYPE TABLE OF ty_alvgrid_xml,
+      gt_alvgrid_txt TYPE TABLE OF ty_alvgrid_txt,
+      gt_ctexml_ftp  TYPE TABLE OF ty_ctexml_ftp,
+      gt_filesftp    TYPE TABLE OF ty_filesftp,
+
+      gv_uzeit       TYPE sy-uzeit.
+
+CLASS lcl_receiver DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+      handle_finished FOR EVENT finished OF cl_gui_timer.
+ENDCLASS.
+
+DATA:
+  go_xml_container TYPE REF TO cl_gui_custom_container,
+  go_txt_container TYPE REF TO cl_gui_custom_container,
+  go_xml           TYPE REF TO cl_gui_alv_grid,
+  go_txt           TYPE REF TO cl_gui_alv_grid,
+  go_receiver      TYPE REF TO lcl_receiver,
+  go_timer         TYPE REF TO cl_gui_timer.
+
+CLASS lcl_receiver IMPLEMENTATION.
+
+  METHOD handle_finished.
+
+    DATA: lv_interval    TYPE i,
+          lv_refresh     TYPE i,
+          lv_message(11) TYPE c.
+
+    IF sy-uzeit GE gv_uzeit .
+      PERFORM: select_lifnr CHANGING lv_interval,
+               select_ftp.
+
+      gv_uzeit      = sy-uzeit + lv_interval.
+      gv_uzeit+4(2) = 00.
+    ENDIF.
+
+    PERFORM: process_lifnr,
+             process_toapproved.
+
+    lv_message    = |{ gv_uzeit(2) }:{ gv_uzeit+2(2) }/{ sy-uzeit(2) }:{ sy-uzeit+2(2) }|.
+    MESSAGE s002 WITH lv_message.
+
+    lv_refresh = 60 - sy-uzeit+4(2).
+    go_timer->interval = lv_refresh.
+    CALL METHOD go_timer->run.
+
+  ENDMETHOD.
+
+ENDCLASS.
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_DOWNLOADTOPROC_CTE_SCR
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-t01.
+  SELECT-OPTIONS: s_lifnr  FOR ztb_ctexml_ftp-lifnr.
+
+  PARAMETERS: p_inter TYPE i.
+SELECTION-SCREEN END OF BLOCK b1.
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_DOWNLOADTOPROC_CTE_FRM
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form INITIALIZATION
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM initialization .
+
+  DATA: ls_value TYPE zsbc_range_type.
+
+  CALL FUNCTION 'ZFMBC_GET_PARAMETER'
+    EXPORTING
+      i_process_id = 'ZRFI_DOWNLOADTOPROC_CTE'
+      i_field_name = 'REFRTESH'
+    IMPORTING
+      e_value      = ls_value.
+
+  IF ls_value-low CA '0123456789' AND
+     ls_value-low GT 0.
+    p_inter = ls_value-low.
+  ELSE.
+    p_inter = 300.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form search_lifnr
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM search_lifnr  CHANGING p_lifnr TYPE ztb_ctexml_ftp-lifnr.
+
+  DATA lt_ret   TYPE STANDARD TABLE OF ddshretval.
+
+  SELECT l~lifnr, l~name1 FROM ztb_ctexml_ftp AS z
+   INNER JOIN lfa1 AS l ON l~lifnr EQ z~lifnr
+    INTO TABLE @DATA(lt_lifnr)
+   WHERE active EQ @abap_true.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield        = 'LIFNR'
+      value_org       = 'S'
+    TABLES
+      value_tab       = lt_lifnr
+      return_tab      = lt_ret
+    EXCEPTIONS
+      parameter_error = 1
+      no_values_found = 2
+      OTHERS          = 3.
+
+  IF sy-subrc IS INITIAL.
+    READ TABLE lt_ret INTO DATA(ls_ret) INDEX 1.
+    p_lifnr = ls_ret-fieldval.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form initialize_alvgrid
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM initialize_alvgrid.
+
+  DATA: ls_layout   TYPE lvc_s_layo,
+        lt_exclude  TYPE ui_functions,
+        lt_fieldcat TYPE lvc_t_fcat.
+
+  IF go_xml_container IS NOT BOUND.
+    CREATE OBJECT go_xml_container
+      EXPORTING
+        container_name              = 'CC_XML'
+      EXCEPTIONS
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5.
+  ENDIF.
+
+  IF go_xml IS NOT BOUND.
+    CREATE OBJECT go_xml
+      EXPORTING
+        i_parent = go_xml_container.
+
+    PERFORM exclude USING:
+          cl_gui_alv_grid=>mc_fc_excl_all  CHANGING lt_exclude.
+
+    ls_layout-zebra      = abap_true.
+    ls_layout-cwidth_opt = abap_false.
+    ls_layout-col_opt    = abap_true.
+    ls_layout-stylefname = 'CELLTAB'.
+    ls_layout-sel_mode   = 'A'.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING FIELD-SYMBOL(<fs_fieldcat>).
+    <fs_fieldcat>-fieldname = 'LIFNR'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'LIFNR'.
+    <fs_fieldcat>-outputlen = 10.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'NAME1'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'DESCRIÇÃO'.
+    <fs_fieldcat>-outputlen = 25.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'JOBS'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'JOBs'.
+    <fs_fieldcat>-outputlen = 5.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'TOTAL'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'TOTAL xml'.
+    <fs_fieldcat>-outputlen = 10.
+    <fs_fieldcat>-do_sum    = abap_true.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'TOTAL_OLD'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'TOTAL ANT.'.
+    <fs_fieldcat>-outputlen = 10.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'TOTAL_TRASH'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'TOTAL !xml'.
+    <fs_fieldcat>-outputlen = 10.
+
+    CALL METHOD go_xml->set_table_for_first_display
+      EXPORTING
+        is_layout            = ls_layout
+        it_toolbar_excluding = lt_exclude
+      CHANGING
+        it_outtab            = gt_alvgrid_xml[]
+        it_fieldcatalog      = lt_fieldcat.
+  ENDIF.
+
+  IF go_txt_container IS NOT BOUND.
+    CREATE OBJECT go_txt_container
+      EXPORTING
+        container_name              = 'CC_TXT'
+      EXCEPTIONS
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5.
+  ENDIF.
+
+  IF go_txt IS NOT BOUND.
+    REFRESH: lt_exclude,
+             lt_fieldcat.
+
+    CREATE OBJECT go_txt
+      EXPORTING
+        i_parent = go_txt_container.
+
+    PERFORM exclude USING:
+          cl_gui_alv_grid=>mc_fc_excl_all  CHANGING lt_exclude.
+
+    ls_layout-zebra      = abap_true.
+    ls_layout-cwidth_opt = abap_false.
+    ls_layout-col_opt    = abap_true.
+    ls_layout-stylefname = 'CELLTAB'.
+    ls_layout-sel_mode   = 'A'.
+
+    APPEND INITIAL LINE TO lt_fieldcat ASSIGNING <fs_fieldcat>.
+    <fs_fieldcat>-fieldname = 'NAME'.
+    <fs_fieldcat>-col_pos   = lines( lt_fieldcat ).
+    <fs_fieldcat>-coltext   = 'ARQUIVO'.
+    <fs_fieldcat>-outputlen = 60.
+
+    CALL METHOD go_txt->set_table_for_first_display
+      EXPORTING
+        is_layout            = ls_layout
+        it_toolbar_excluding = lt_exclude
+      CHANGING
+        it_outtab            = gt_alvgrid_txt[]
+        it_fieldcatalog      = lt_fieldcat.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form exclude
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM exclude  USING    p_uifunc  TYPE ui_func
+              CHANGING p_exclude TYPE ui_functions.
+
+  DATA ls_exclude TYPE ui_func.
+
+  ls_exclude = p_uifunc.
+  APPEND ls_exclude TO p_exclude.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form initialize_timer
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM initialize_timer .
+
+  MESSAGE s002 WITH 'Inicializando parâmetros!'.
+
+  IF go_timer IS NOT BOUND.
+    CREATE OBJECT go_timer.
+  ENDIF.
+
+  IF go_receiver IS NOT BOUND.
+    CREATE OBJECT go_receiver.
+  ENDIF.
+
+  IF go_timer    IS BOUND AND
+     go_receiver IS BOUND AND
+     go_timer->interval IS INITIAL.
+    SET HANDLER go_receiver->handle_finished FOR go_timer.
+    go_timer->interval = 1.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form select_lifnr
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM select_lifnr  CHANGING p_interval TYPE i.
+
+  SELECT z~*, l~name1
+    FROM ztb_ctexml_ftp AS z
+   INNER JOIN lfa1 AS l ON z~lifnr EQ l~lifnr
+   WHERE z~lifnr IN @s_lifnr
+     AND z~active EQ @abap_true
+    INTO CORRESPONDING FIELDS OF TABLE @gt_ctexml_ftp.
+
+  p_interval = p_inter.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form select_ftp
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM select_ftp .
+
+  DATA: lv_perct     TYPE i,
+        lv_text(255) TYPE c,
+        lv_total     TYPE i,
+        lv_totalt    TYPE i.
+
+  STATICS: ls_hdl    TYPE i,
+           ls_ftpcfg TYPE zst_ctexml_ftp.
+
+  IF ls_ftpcfg IS INITIAL.
+    CALL FUNCTION 'ZFM_LOADFTPCFG'
+      IMPORTING
+        ctexml_ftp = ls_ftpcfg.
+  ENDIF.
+
+  lv_text = 'Conectando-se ao FTP!'.
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+    EXPORTING
+      percentage = 50
+      text       = lv_text.
+
+  "Conecta FTP
+  PERFORM ftp_connect    USING ls_ftpcfg
+                      CHANGING ls_hdl.
+
+  IF ls_hdl NE 0.
+    "XML
+    REFRESH gt_filesftp.
+
+    LOOP AT gt_ctexml_ftp INTO DATA(ls_ctexml_ftp).
+      lv_perct = trunc( sy-tabix * 100 / lines( gt_ctexml_ftp ) ).
+      lv_text  = |{ TEXT-t02 } { sy-tabix }/{ lines( gt_ctexml_ftp ) } { lv_perct }%|.
+
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perct
+          text       = lv_text.
+
+      APPEND INITIAL LINE TO gt_filesftp ASSIGNING FIELD-SYMBOL(<fs_filesftp>).
+      <fs_filesftp>-lifnr = ls_ctexml_ftp-lifnr.
+
+      "Lista arquivo XML do diretorio remoto
+      PERFORM ftp_listdir    USING ls_ctexml_ftp
+                                   ls_hdl
+                          CHANGING <fs_filesftp>-total
+                                   <fs_filesftp>-total_trash.
+    ENDLOOP.
+  ENDIF.
+
+  "Disconecta FTP
+  PERFORM ftp_disconnect    USING ls_ftpcfg
+                         CHANGING ls_hdl.
+
+  SORT gt_filesftp BY lifnr.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form process_lifnr
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM process_lifnr .
+
+  DATA: lt_jobs      TYPE ztt_jobs,
+        ls_celltab   TYPE lvc_s_styl,
+
+        lv_jobname   TYPE tbtco-jobname,
+        lv_perct     TYPE i,
+        lv_total     TYPE i,
+        lv_text(255) TYPE c.
+
+  IF lines( gt_ctexml_ftp ) GT 0.
+
+    CALL FUNCTION 'ZFM_JOBSTATUS'
+      EXPORTING
+        jobname  = 'DOWNLOADCTE_*'
+        progname = 'ZRFI_DOWNLOAD_CTE'
+      IMPORTING
+        tjobs    = lt_jobs.
+
+    REFRESH gt_alvgrid_xml.
+
+    "Fornecedores
+    LOOP AT gt_ctexml_ftp INTO DATA(ls_ctexml_ftp).
+      lv_perct = trunc( sy-tabix * 100 / lines( gt_ctexml_ftp ) ).
+      lv_text  = |{ TEXT-t02 } { sy-tabix }/{ lines( gt_ctexml_ftp ) } { lv_perct }%|.
+
+      CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+        EXPORTING
+          percentage = lv_perct
+          text       = lv_text.
+
+      APPEND INITIAL LINE TO gt_alvgrid_xml ASSIGNING FIELD-SYMBOL(<fs_alvgrid_xml>).
+      <fs_alvgrid_xml>-lifnr  = ls_ctexml_ftp-lifnr.
+      <fs_alvgrid_xml>-name1  = ls_ctexml_ftp-name1.
+
+      "Arquivos existentes no FTP
+      READ TABLE gt_filesftp INTO DATA(ls_filesftp) WITH KEY lifnr = ls_ctexml_ftp-lifnr
+                                                      BINARY SEARCH.
+      IF sy-subrc EQ 0.
+        <fs_alvgrid_xml>-total_old   = <fs_alvgrid_xml>-total.
+        <fs_alvgrid_xml>-total       = ls_filesftp-total.
+        <fs_alvgrid_xml>-total_trash = ls_filesftp-total_trash.
+      ELSE.
+        <fs_alvgrid_xml>-total_old   = <fs_alvgrid_xml>-total.
+        <fs_alvgrid_xml>-total       = 0.
+        <fs_alvgrid_xml>-total_trash = 0.
+      ENDIF.
+
+      "Jobs ativos/liberados
+      lv_jobname = |DOWNLOADCTE_{ ls_ctexml_ftp-lifnr }|.
+      READ TABLE lt_jobs INTO DATA(ls_jobs) WITH KEY jobname = lv_jobname
+                                              BINARY SEARCH.
+      IF sy-subrc EQ 0.
+        <fs_alvgrid_xml>-jobs = ls_jobs-jcount.
+      ELSE.
+        <fs_alvgrid_xml>-jobs = 0.
+      ENDIF.
+
+      "Layout ALVGRID
+      CLEAR ls_celltab.
+      DO 6 TIMES.
+        CLEAR ls_celltab.
+
+        CASE sy-index.
+          WHEN 1.
+            ls_celltab-fieldname = 'LIFNR'.
+          WHEN 2.
+            ls_celltab-fieldname = 'NAME1'.
+          WHEN 3.
+            ls_celltab-fieldname = 'TOTAL'.
+          WHEN 4.
+            ls_celltab-fieldname = 'TOTAL_OLD'.
+          WHEN 5.
+            ls_celltab-fieldname = 'TOTAL_TRASH'.
+          WHEN 6.
+            ls_celltab-fieldname = 'JOBS'.
+        ENDCASE.
+
+        IF <fs_alvgrid_xml>-total       GT 0 OR
+           <fs_alvgrid_xml>-total_trash GT 0.
+          "Vermelho
+          ls_celltab-style = '00000017'.
+        ENDIF.
+
+        INSERT ls_celltab INTO TABLE <fs_alvgrid_xml>-celltab.
+      ENDDO.
+    ENDLOOP.
+
+    SORT gt_alvgrid_xml BY total total_old total_trash name1.
+  ENDIF.
+
+  CALL METHOD go_xml->refresh_table_display
+    EXCEPTIONS
+      finished = 1
+      OTHERS   = 2.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form ftp_connect
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM ftp_connect    USING p_ftpcfg TYPE zst_ctexml_ftp
+                 CHANGING p_hdl    TYPE i.
+
+  DATA: lt_return       TYPE TABLE OF ty_line,
+
+        lv_pswd(30)     TYPE c,
+        lv_user(30)     TYPE c,
+        lv_host(64)     TYPE c,
+        lv_hostp(64)    TYPE c,
+        lv_dest         LIKE rfcdes-rfcdest,
+        lv_subrc        TYPE sy-subrc,
+        lv_command(255) TYPE c.
+
+  lv_pswd  = p_ftpcfg-password.
+  lv_user  = p_ftpcfg-username.
+  lv_host  = p_ftpcfg-hostname.
+  lv_dest  = p_ftpcfg-rfcdest.
+  lv_hostp = |{ p_ftpcfg-hostname } { p_ftpcfg-port }|.
+
+  DO 5 TIMES.
+    CALL FUNCTION 'FTP_CONNECT'
+      EXPORTING
+        user            = lv_user
+        password        = lv_pswd
+        host            = lv_host
+        rfc_destination = lv_dest
+      IMPORTING
+        handle          = p_hdl
+      EXCEPTIONS
+        not_connected   = 1
+        OTHERS          = 2.
+
+    IF sy-subrc NE 0.
+      CALL FUNCTION 'FTP_CONNECT'
+        EXPORTING
+          user            = lv_user
+          password        = lv_pswd
+          host            = lv_hostp
+          rfc_destination = lv_dest
+        IMPORTING
+          handle          = p_hdl
+        EXCEPTIONS
+          not_connected   = 1
+          OTHERS          = 2.
+    ENDIF.
+
+    IF sy-subrc EQ 0.
+      IF p_ftpcfg-passive EQ abap_true.
+        lv_command = 'set passive on'.
+      ELSE.
+        lv_command = 'set passive off'.
+      ENDIF.
+
+      PERFORM ftp_command    TABLES lt_return
+                              USING p_hdl
+                                    lv_command
+                           CHANGING lv_subrc.
+
+      IF lv_subrc NE 0.
+        "Disconecta FTP
+        PERFORM ftp_disconnect    USING p_ftpcfg
+                               CHANGING p_hdl.
+      ENDIF.
+
+      EXIT.
+    ENDIF.
+  ENDDO.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form ftp_disconnect
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM ftp_disconnect     USING p_ftpcfg TYPE zst_ctexml_ftp
+                     CHANGING p_hdl    TYPE i.
+
+  CHECK p_hdl GT 0.
+
+  CALL FUNCTION 'FTP_DISCONNECT'
+    EXPORTING
+      handle = p_hdl
+    EXCEPTIONS
+      OTHERS = 1.
+
+  CALL FUNCTION 'RFC_CONNECTION_CLOSE'
+    EXPORTING
+      destination = p_ftpcfg-rfcdest
+    EXCEPTIONS
+      OTHERS      = 1.
+
+  CLEAR p_hdl.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form ftp_listdir
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM ftp_listdir     USING p_ctexml_ftp TYPE ty_ctexml_ftp
+                           p_hdl        TYPE i
+                  CHANGING p_total      TYPE i
+                           p_totalt     TYPE i.
+
+  DATA: lt_return       TYPE TABLE OF ty_line,
+        lt_rfiles       TYPE TABLE OF ty_line,
+        lt_split        TYPE TABLE OF ty_line,
+
+        lv_subrc        TYPE sy-subrc,
+        lv_command(255) TYPE c.
+
+  CLEAR: p_total,
+         p_totalt.
+
+  IF p_hdl IS NOT INITIAL.
+    "Diretorio raiz
+    lv_command = |cd { p_ctexml_ftp-path }|.
+    PERFORM ftp_command    TABLES lt_return
+                            USING p_hdl
+                                  lv_command
+                         CHANGING lv_subrc.
+
+    IF lv_subrc EQ 0.
+      "Lista diretorio
+      lv_command = |dir|.
+      PERFORM ftp_command    TABLES lt_rfiles
+                              USING p_hdl
+                                    lv_command
+                           CHANGING lv_subrc.
+    ENDIF.
+
+    LOOP AT lt_rfiles INTO DATA(ls_rfiles).
+      REFRESH lt_split.
+
+      SPLIT ls_rfiles AT '.' INTO TABLE lt_split.
+      CHECK lines( lt_split ) GT 1.
+
+      READ TABLE lt_split INTO DATA(ls_split) INDEX lines( lt_split ).
+      DATA(lv_ext) = to_lower( ls_split-line ).
+
+      IF lv_ext EQ 'xml'.
+        ADD 1 TO p_total.
+      ELSE.
+        ADD 1 TO p_totalt.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form ftp_command
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM ftp_command    TABLES p_return  STRUCTURE ty_return
+                     USING p_hdl     TYPE i
+                           p_command TYPE char255
+                  CHANGING p_subrc   TYPE sy-subrc.
+
+  CLEAR p_subrc.
+  REFRESH p_return.
+
+  CALL FUNCTION 'FTP_COMMAND'
+    EXPORTING
+      handle        = p_hdl
+      command       = p_command
+      compress      = 'N'
+    TABLES
+      data          = p_return
+    EXCEPTIONS
+      command_error = 1
+      tcpip_error   = 2
+      error_message = 3
+      OTHERS        = 4.
+
+  CASE p_command(2).
+    WHEN 're'. "rename
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '250 Rename successful.'.
+      p_subrc = sy-subrc.
+
+      REFRESH p_return.
+
+    WHEN 'cd'. "chance directory
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '250 Directory successfully changed.'.
+      p_subrc = sy-subrc.
+
+      REFRESH p_return.
+
+    WHEN 'ge'. "get
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '226 Transfer complete.'.
+      p_subrc = sy-subrc.
+
+      REFRESH p_return.
+
+    WHEN 'se'. "set
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = 'Passive mode is on.'.
+      IF sy-subrc NE 0.
+        READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = 'Passive mode is off.'.
+      ENDIF.
+      p_subrc = sy-subrc.
+
+      REFRESH p_return.
+
+    WHEN 'mk'. "mkdir
+      LOOP AT p_return INTO DATA(ls_return).
+        IF ls_return-line(3) EQ '257' AND
+           ls_return-line    CS 'created'.
+
+          p_subrc = 0.
+          EXIT.
+
+        ENDIF.
+      ENDLOOP.
+
+      REFRESH p_return.
+
+    WHEN 'mg'. "mget
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '226 Transfer complete.'.
+      p_subrc = sy-subrc.
+
+      REFRESH p_return.
+
+    WHEN 'di'. "dir
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '226 Directory send OK.'.
+      p_subrc = sy-subrc.
+
+    WHEN 'de'. "del
+      READ TABLE p_return TRANSPORTING NO FIELDS WITH KEY line = '250 Delete operation successful.'.
+      p_subrc = sy-subrc.
+
+    WHEN OTHERS.
+      p_subrc = 4.
+
+  ENDCASE.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form process_toapproved
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM process_toapproved .
+
+  DATA: lt_dirlist TYPE TABLE OF eps2fili,
+        lw_ftpcfg  TYPE zst_ctexml_ftp,
+
+        lv_dirname TYPE eps2filnam.
+
+  REFRESH gt_alvgrid_txt.
+
+  CALL FUNCTION 'ZFM_LOADFTPCFG'
+    IMPORTING
+      ctexml_ftp = lw_ftpcfg.
+
+  MOVE lw_ftpcfg-path_locl TO lv_dirname.
+
+  CALL FUNCTION 'EPS2_GET_DIRECTORY_LISTING'
+    EXPORTING
+      iv_dir_name            = lv_dirname
+    TABLES
+      dir_list               = lt_dirlist
+    EXCEPTIONS
+      invalid_eps_subdir     = 1
+      sapgparam_failed       = 2
+      build_directory_failed = 3
+      no_authorization       = 4
+      read_directory_failed  = 5
+      too_many_read_errors   = 6
+      empty_directory_list   = 7
+      OTHERS                 = 8.
+
+  LOOP AT lt_dirlist INTO DATA(ls_dirlist).
+    DATA(lv_len) = strlen( ls_dirlist-name ).
+    SUBTRACT 3 FROM lv_len.
+
+    CHECK to_lower( ls_dirlist-name+lv_len(3) ) EQ 'txt'.
+    APPEND INITIAL LINE TO gt_alvgrid_txt ASSIGNING FIELD-SYMBOL(<fs_alvgrid_txt>).
+    <fs_alvgrid_txt>-name = ls_dirlist-name.
+  ENDLOOP.
+
+  CALL METHOD go_txt->refresh_table_display
+    EXCEPTIONS
+      finished = 1
+      OTHERS   = 2.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Module STATUS_9000 OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE status_9000 OUTPUT.
+
+  SET PF-STATUS '9000'.
+  SET TITLEBAR '9000'.
+
+  PERFORM: initialize_alvgrid,
+           initialize_timer.
+  CALL METHOD go_timer->run.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command INPUT.
+
+  CASE sy-ucomm.
+
+    WHEN 'BACK'.
+      LEAVE TO SCREEN 0.
+
+    WHEN 'CLOS'.
+      LEAVE TO SCREEN 0.
+
+    WHEN 'CANC'.
+      LEAVE PROGRAM.
+
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*& Include          ZRFI_CTEUTILS_FRM
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form matchcode
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM matchcode CHANGING p_folder TYPE ztb_ctexml_ftp-path.
+
+  DATA: lv_folder TYPE string.
+
+  CALL METHOD cl_gui_frontend_services=>directory_browse
+    CHANGING
+      selected_folder      = lv_folder
+    EXCEPTIONS
+      cntl_error           = 1
+      error_no_gui         = 2
+      not_supported_by_gui = 3
+      OTHERS               = 4.
+
+  IF sy-subrc NE 0.
+    MESSAGE s398(00) WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE 'W'.
+  ELSE.
+    p_folder = lv_folder.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form message_pb
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM message_pb    USING p_total TYPE i.
+
+  DATA: lv_porc TYPE i,
+        lv_step TYPE i,
+        lv_text TYPE char255.
+
+  STATICS: ls_total  TYPE i,
+           ls_count  TYPE i,
+           ls_tcount TYPE i.
+
+  CHECK sy-batch EQ abap_false. "Mostra a mensagem somente no online
+
+  IF ls_total EQ 0 OR
+     ls_total NE p_total.
+
+    CLEAR: ls_count,
+           ls_tcount.
+    ls_total = p_total.
+  ENDIF.
+
+  lv_step = trunc( p_total / 10 ).
+  ADD 1 TO: ls_count,
+            ls_tcount.
+
+  IF ls_tcount EQ 1 OR
+     ls_count  EQ lv_step.
+    lv_porc  = trunc( ls_tcount * 100 / p_total ).
+    lv_text  = |Processando registro { ls_tcount }/{ p_total } { lv_porc }%|.
+    ls_count = 1.
+
+    IF lv_porc GT 100.
+      lv_porc = 100.
+    ENDIF.
+
+    CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+      EXPORTING
+        percentage = lv_porc
+        text       = lv_text.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form insert_fieldcat
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM insert_fieldcat    USING p_field    TYPE any
+                              p_text     TYPE any
+                              p_type     TYPE any
+                              p_edit     TYPE any
+                              p_decimals TYPE any
+                              p_reffield TYPE any
+                              p_reftab   TYPE any
+                     CHANGING p_fieldcat TYPE slis_t_fieldcat_alv.
+
+  APPEND INITIAL LINE TO p_fieldcat ASSIGNING FIELD-SYMBOL(<fs_fieldcat>).
+  <fs_fieldcat>-fieldname      = p_field.
+
+  <fs_fieldcat>-reptext_ddic   = p_text.
+  <fs_fieldcat>-seltext_l      = p_text.
+  <fs_fieldcat>-seltext_m      = p_text.
+  <fs_fieldcat>-seltext_s      = p_text.
+  <fs_fieldcat>-text_fieldname = p_text.
+  <fs_fieldcat>-inttype        = p_type.
+  <fs_fieldcat>-edit           = p_edit.
+
+  <fs_fieldcat>-ref_fieldname  = p_reffield.
+  <fs_fieldcat>-ref_tabname    = p_reftab.
+
+  IF p_decimals = 0.
+    <fs_fieldcat>-decimals_out = p_decimals.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form clear_string
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM clear_string  CHANGING p_string TYPE string.
+
+  REPLACE ALL OCCURRENCES OF:
+    cl_abap_char_utilities=>cr_lf          IN p_string WITH ' ',
+    cl_abap_char_utilities=>newline        IN p_string WITH ' ',
+    cl_abap_char_utilities=>horizontal_tab IN p_string WITH ' ',
+    cl_abap_char_utilities=>vertical_tab   IN p_string WITH ' '.
+
+ENDFORM.
