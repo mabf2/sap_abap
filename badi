@@ -1,0 +1,10 @@
+1. Entrar na classe CL_EXITHANDLER via SE24;
+2. Colocar um BREAK-POINT dentro do método GET_INSTANCE;
+3. Entrar na transação que você quer descobrir a BADI e
+4. Todo ponto de parada vai ser uma BADI.
+
+Dando o duplo clique nessa variável de referência, você irá para a declaração da mesma, algo como
+DATA: r_ref TYPE REF TO IF_<BADI_NAME>.
+
+Posteriormente foi introduzido o comando GET BADI (que também pode ser pesquisado),
+que não necessita a chamada do método GET_INSTANCE
