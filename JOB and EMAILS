@@ -1,0 +1,664 @@
+*&---------------------------------------------------------------------*
+*& Report ZJOB_SENDJOBRESULTBYEMAIL
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zjob_sendjobresultbyemail.
+
+DATA: lw_tvarvc   TYPE tvarvc,
+      lw_docchng  TYPE sodocchgi1,
+      lt_objpack  TYPE TABLE OF sopcklsti1,
+      lt_objhead  TYPE TABLE OF solisti1,
+      lt_objbin   TYPE TABLE OF solisti1,
+      lt_objtxt   TYPE TABLE OF solisti1,
+      lt_reclist  TYPE TABLE OF somlreci1,
+
+      lv_spoolid  TYPE rspoid,
+      lv_low      TYPE tvarvc-low,
+      lv_high     TYPE tvarvc-high,
+      lv_progname TYPE tbtcp-progname,
+      lv_enddate  TYPE tbtco-enddate,
+      lv_endtime  TYPE tbtco-endtime.
+
+lw_tvarvc-name = sy-cprog(30).
+lw_tvarvc-type = 'P'.
+lw_tvarvc-numb = '0000'.
+
+SELECT SINGLE low, high FROM tvarvc
+  INTO (@lv_low, @lv_high)
+ WHERE name EQ @lw_tvarvc-name
+   AND type EQ @lw_tvarvc-type
+   AND numb EQ @lw_tvarvc-numb.
+
+IF sy-subrc EQ 0.
+  lv_enddate = lv_low.
+  lv_endtime = lv_high.
+
+ELSE.
+  lv_enddate = sy-datum.
+  lv_endtime = sy-uzeit.
+
+ENDIF.
+
+"Atualiza parâmetros para próxima pesquisa
+lw_tvarvc-low  = sy-datum.
+lw_tvarvc-high = sy-uzeit.
+MODIFY tvarvc FROM lw_tvarvc.
+
+CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+  EXPORTING
+    wait = abap_true.
+
+"Processamento principal
+SELECT z~progname, a~smtp_addr, z~status FROM zjobtoemail AS z
+ INNER JOIN usr21 AS u ON u~bname EQ z~bname
+ INNER JOIN adr6  AS a ON a~addrnumber EQ u~addrnumber
+                      AND a~persnumber EQ u~persnumber
+ WHERE active EQ @abap_true
+  INTO TABLE @DATA(lt_jobtoemail).
+
+CHECK sy-dbcnt GT 0.
+
+SELECT p~progname, s~spoolid, p~jobname, s~recycled, o~status FROM tbtco AS o
+ INNER JOIN tbtcp AS p ON p~jobname  EQ o~jobname AND
+                          p~jobcount EQ o~jobcount
+ LEFT JOIN tbtc_spoolid AS s ON s~jobname  EQ o~jobname AND
+                                s~jobcount EQ o~jobcount
+   FOR ALL ENTRIES IN @lt_jobtoemail
+ WHERE p~progname EQ @lt_jobtoemail-progname
+   AND s~recycled EQ @abap_false
+   AND o~enddate  GE @lv_enddate
+   AND o~endtime  GT @lv_endtime
+   AND o~status   IN ('F','A') "finished, aborted
+  INTO TABLE @DATA(lt_job).
+
+SORT: lt_job        BY progname spoolid,
+      lt_jobtoemail BY progname.
+
+LOOP AT lt_job INTO DATA(lw_job).
+  CHECK lw_job-recycled IS INITIAL.
+
+  IF lv_progname IS INITIAL OR
+     lv_progname NE lw_job-progname.
+    REFRESH lt_reclist.
+    lv_progname = lw_job-progname.
+  ENDIF.
+
+  IF lines( lt_reclist ) EQ 0.
+    READ TABLE lt_jobtoemail TRANSPORTING NO FIELDS WITH KEY progname = lw_job-progname
+                                                      BINARY SEARCH.
+    CHECK sy-subrc EQ 0.
+    LOOP AT lt_jobtoemail INTO DATA(lw_jobtoemail) FROM sy-tabix.
+      IF lw_jobtoemail-progname NE lw_job-progname.
+        EXIT.
+      ENDIF.
+
+      IF lw_jobtoemail-status EQ lw_job-status.
+        APPEND INITIAL LINE TO lt_reclist ASSIGNING FIELD-SYMBOL(<fs_reclist>).
+        <fs_reclist>-receiver = lw_jobtoemail-smtp_addr.
+        <fs_reclist>-rec_type = 'U'.
+        <fs_reclist>-copy     = abap_true.
+        <fs_reclist>-com_type = 'INT'.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+  IF lines( lt_reclist ) GT 0.
+    IF lw_job-spoolid IS NOT INITIAL.
+      MOVE lw_job-spoolid TO lv_spoolid.
+      CALL FUNCTION 'ZFM_SENDSPOOLLIST'
+        EXPORTING
+          spoolid           = lv_spoolid
+        CHANGING
+          reclist           = lt_reclist
+        EXCEPTIONS
+          spoollist_aborted = 1
+          error_send        = 2
+          OTHERS            = 3.
+
+      WRITE: / lw_job-progname,
+             AT 45(10) lw_job-spoolid.
+
+    ELSE.
+      APPEND INITIAL LINE TO lt_objtxt ASSIGNING FIELD-SYMBOL(<fsobjtxt>).
+      <fsobjtxt>-line = |Job cancelado ({ lw_job-jobname }/{ lw_job-progname })|.
+
+      lw_docchng-obj_name   = 'JOB CANCEL.'.
+      lw_docchng-obj_descr  = |Job Cancelado!|.
+      lw_docchng-sensitivty = 'F'.
+      lw_docchng-doc_size   = ( lines( lt_objtxt ) - 1 ) * 255.
+
+      APPEND INITIAL LINE TO lt_objpack ASSIGNING FIELD-SYMBOL(<objpack>).
+      <objpack>-transf_bin = abap_false.
+      <objpack>-head_start = 1.
+      <objpack>-head_num   = 0.
+      <objpack>-body_start = 1.
+      <objpack>-body_num   = lines( lt_objtxt ).
+      <objpack>-doc_type   = 'RAW'.
+
+      CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+        EXPORTING
+          document_data              = lw_docchng
+          put_in_outbox              = abap_true
+          commit_work                = abap_true
+        TABLES
+          packing_list               = lt_objpack
+          object_header              = lt_objhead
+          contents_bin               = lt_objbin
+          contents_txt               = lt_objtxt
+          receivers                  = lt_reclist
+        EXCEPTIONS
+          too_many_receivers         = 1
+          document_not_sent          = 2
+          document_type_not_exist    = 3
+          operation_no_authorization = 4
+          parameter_error            = 5
+          x_error                    = 6
+          enqueue_error              = 7
+          OTHERS                     = 8.
+
+      WRITE: / lw_job-progname,
+             AT 45(10) 'Job cancelado', lw_job-jobname, lw_job-progname.
+    ENDIF.
+  ENDIF.
+ENDLOOP.
+
+
+
+FUNCTION zfm_sendspoollist.
+*"----------------------------------------------------------------------
+*"*"Interface local:
+*"  IMPORTING
+*"     VALUE(SPOOLID) TYPE  RSPOID
+*"  CHANGING
+*"     VALUE(RECLIST) TYPE  SOMLRECI1_T
+*"  EXCEPTIONS
+*"      SPOOLLIST_ABORTED
+*"      ERROR_SEND
+*"----------------------------------------------------------------------
+  DATA: lw_docchng         TYPE sodocchgi1,
+        lt_objpack         TYPE TABLE OF sopcklsti1,
+        lt_objhead         TYPE TABLE OF solisti1,
+        lt_objbin          TYPE TABLE OF solisti1,
+        lt_objtxt          TYPE TABLE OF solisti1,
+        lt_buffer          TYPE TABLE OF normal_list,
+        lt_buffer_wide     TYPE TABLE OF wide_list,
+
+        lv_lcodepage       LIKE tst01-dcharcod,
+        lv_line            TYPE char255,
+        lv_data_line(1000) TYPE c,
+        lv_len             TYPE i,
+        lv_pos             TYPE i,
+        lv_rc              TYPE i,
+        lv_ind             TYPE sy-index,
+        lv_str             TYPE string,
+        lv_spool           TYPE rqident,
+        lv_listident       TYPE tbtcp-listident.
+
+  CONSTANTS lc_string TYPE char255 VALUE '─┌┬┐├┼┤└┴┘│'.
+
+  "FORMs retirados da function RSPO_DISPLAY_ABAP_SPOOLJOB
+  PERFORM: get_request USING spoolid CHANGING tsp01,
+
+           read_data     TABLES lt_buffer
+                                lt_buffer_wide
+                          USING tsp01 1 0
+                       CHANGING lv_lcodepage.
+
+  LOOP AT lt_buffer INTO DATA(lw_bukker).
+    CHECK lw_bukker-data_length GT 0.
+
+    DO.
+      IF lw_bukker-data_line CS 'COL'.
+        lw_bukker-data_line+sy-fdpos(6) = '      '.
+      ELSE.
+        EXIT.
+      ENDIF.
+    ENDDO.
+
+    REPLACE ALL OCCURRENCES OF:
+      cl_abap_char_utilities=>cr_lf          IN lw_bukker-data_line WITH ' ',
+      cl_abap_char_utilities=>newline        IN lw_bukker-data_line WITH ' ',
+      cl_abap_char_utilities=>horizontal_tab IN lw_bukker-data_line WITH ' ',
+      cl_abap_char_utilities=>vertical_tab   IN lw_bukker-data_line WITH ' '.
+
+    lv_len = strlen( lc_string ).
+    DO strlen( lc_string ) TIMES.
+      lv_pos = sy-index - 1.
+      REPLACE ALL OCCURRENCES OF lc_string+lv_pos(1) IN lw_bukker-data_line WITH ' ' IN CHARACTER MODE.
+
+      lv_data_line = lw_bukker-data_line.
+      CONDENSE lv_data_line NO-GAPS.
+      IF strlen( lv_data_line ) EQ 0.
+        EXIT.
+      ENDIF.
+    ENDDO.
+
+    lv_data_line = lw_bukker-data_line.
+    CONDENSE lv_data_line NO-GAPS.
+    CHECK strlen( lv_data_line ) GT 0.
+
+    lw_bukker-data_length = strlen( lw_bukker-data_line ).
+
+    IF lw_bukker-data_length GT 255.
+      lv_pos = 0.
+      DO lw_bukker-data_length TIMES.
+        lv_ind = sy-index - 1.
+
+        IF     lv_pos EQ 255.
+          APPEND INITIAL LINE TO lt_objtxt ASSIGNING FIELD-SYMBOL(<fs_objtxt2>).
+          MOVE lv_line TO <fs_objtxt2>-line.
+
+          CLEAR: lv_line,
+                 lv_pos.
+        ELSEIF sy-index EQ lw_bukker-data_length.
+          lv_line+lv_pos(1) = lw_bukker-data_line+lv_ind(1).
+
+          APPEND INITIAL LINE TO lt_objtxt ASSIGNING <fs_objtxt2>.
+          MOVE lv_line TO <fs_objtxt2>-line.
+
+        ENDIF.
+
+        lv_line+lv_pos(1) = lw_bukker-data_line+lv_ind(1).
+        ADD 1 TO lv_pos.
+      ENDDO.
+
+    ELSE.
+      APPEND INITIAL LINE TO lt_objtxt ASSIGNING <fs_objtxt2>.
+      <fs_objtxt2>-line = lw_bukker-data_line.
+
+    ENDIF.
+  ENDLOOP.
+
+  SELECT SINGLE * FROM tsp01
+    INTO @DATA(lw_tsp01)
+   WHERE rqident EQ @spoolid.
+
+  CHECK sy-subrc EQ 0.
+
+  MOVE spoolid TO lv_listident.
+
+  SELECT o~jobname, o~jobcount, o~sdlstrtdt, o~sdlstrttm, o~enddate, o~endtime FROM tbtc_spoolid AS s
+   INNER JOIN tbtco AS o ON o~jobname   EQ s~jobname  AND
+                            o~jobcount  EQ s~jobcount
+   WHERE s~spoolid EQ @lv_listident
+     AND s~recycled EQ @abap_false
+   ORDER BY enddate DESCENDING, endtime DESCENDING
+    INTO TABLE @DATA(lt_tbtco).
+
+  lv_rc = 4.
+
+  LOOP AT lt_tbtco INTO DATA(lw_tbtco).
+    PERFORM compare_timestamps     USING lw_tsp01-rqcretime
+                                         lw_tbtco-enddate
+                                         lw_tbtco-endtime
+                                CHANGING lv_rc.
+    IF lv_rc EQ 0.
+      EXIT.
+    ENDIF.
+  ENDLOOP.
+
+  IF lv_rc EQ 0.
+    APPEND INITIAL LINE TO lt_objpack ASSIGNING FIELD-SYMBOL(<objpack>).
+    <objpack>-transf_bin = abap_false.
+    <objpack>-head_start = 1.
+    <objpack>-head_num   = 0.
+    <objpack>-body_start = 1.
+    <objpack>-body_num   = lines( lt_objtxt ).
+    <objpack>-doc_type   = 'RAW'.
+
+    lw_docchng-obj_name   = 'Spool JOB'.
+    lw_docchng-obj_descr  = |Job executado ({ lw_tbtco-jobname } #{ spoolid })|.
+    lw_docchng-sensitivty = 'F'.
+
+    READ TABLE lt_objtxt INTO DATA(lw_objtxt) INDEX lines( lt_objtxt ).
+    lw_docchng-doc_size = ( lines( lt_objtxt ) - 1 ) * 255 + strlen( lw_objtxt ).
+
+    CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+      EXPORTING
+        document_data              = lw_docchng
+        put_in_outbox              = abap_true
+        commit_work                = abap_true
+      TABLES
+        packing_list               = lt_objpack
+        object_header              = lt_objhead
+        contents_bin               = lt_objbin
+        contents_txt               = lt_objtxt
+        receivers                  = reclist
+      EXCEPTIONS
+        too_many_receivers         = 1
+        document_not_sent          = 2
+        document_type_not_exist    = 3
+        operation_no_authorization = 4
+        parameter_error            = 5
+        x_error                    = 6
+        enqueue_error              = 7
+        OTHERS                     = 8.
+
+    IF sy-subrc NE 0.
+      RAISE error_send.
+    ENDIF.
+  ENDIF.
+
+ENDFUNCTION.
+
+*----------------------------------------------------------------------*
+***INCLUDE LZGF_SENDSPOOLLISTF01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form compare_timestamps
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM compare_timestamps     USING p_request_rqcretime TYPE tsp01-rqcretime
+                                  p_wa_tbtco_enddate TYPE tbtco-enddate
+                                  p_wa_tbtco_endtime TYPE tbtco-endtime
+                         CHANGING p_rc.
+
+  DATA: spool_timestamp TYPE timestamp.
+  DATA: diff TYPE tzntstmpl.
+  DATA: tz TYPE timezone.
+  DATA: batch_timestamp TYPE timestamp.
+  DATA: tolerance TYPE tzntstmpl.
+
+  CLEAR p_rc.
+  spool_timestamp = p_request_rqcretime(14).
+
+  CALL FUNCTION 'GET_SYSTEM_TIMEZONE'
+    IMPORTING
+      timezone            = tz
+    EXCEPTIONS
+      customizing_missing = 1
+      OTHERS              = 2.
+  IF sy-subrc <> 0.
+    EXIT.
+  ENDIF.
+
+  CONVERT DATE p_wa_tbtco_enddate TIME p_wa_tbtco_endtime INTO TIME
+  STAMP batch_timestamp TIME ZONE tz.
+
+  tolerance = 24 * 3600.
+
+  IF sy-subrc = 0.
+
+    CALL METHOD cl_abap_tstmp=>subtract
+      EXPORTING
+        tstmp1 = spool_timestamp
+        tstmp2 = batch_timestamp
+      RECEIVING
+        r_secs = diff.
+
+    IF diff > tolerance.
+      p_rc = 1.
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form clear_string
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM clear_string  CHANGING p_string TYPE string.
+
+  CONDENSE p_string.
+
+  REPLACE ALL OCCURRENCES OF:
+    cl_abap_char_utilities=>cr_lf          IN p_string WITH ' ',
+    cl_abap_char_utilities=>newline        IN p_string WITH ' ',
+    cl_abap_char_utilities=>horizontal_tab IN p_string WITH ' ',
+    cl_abap_char_utilities=>vertical_tab   IN p_string WITH ' '.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form get_request
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM get_request USING rqident CHANGING rq LIKE tsp01.
+
+  SELECT SINGLE * FROM tsp01 INTO rq WHERE rqident EQ rqident.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form read_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM read_data TABLES buffer
+                      buffer_wide              " note 1053675
+               USING tsp01 LIKE tsp01
+                     VALUE(first) TYPE i
+                     VALUE(last) TYPE i
+               CHANGING codepage LIKE tst01-dcharcod.
+
+  DATA: lines TYPE i.
+  DATA: c_rc(5).
+
+  REFRESH buffer.
+  REFRESH buffer_wide.                      " note 1053675
+  CLEAR is_otf.
+
+  temse_client = tsp01-rqclient.
+  temse_name = tsp01-rqo1name.
+  temse_part = 1.
+
+  CALL FUNCTION 'RSTS_GET_ATTRIBUTES'
+    EXPORTING
+      authority     = 'SP01'
+      client        = temse_client
+      name          = temse_name
+      part          = temse_part
+    IMPORTING
+      charco        = codepage
+      rectyp        = temse_rectyp
+      objtype       = temse_objtyp
+    EXCEPTIONS
+      fb_error      = 1
+      fb_rsts_other = 2
+      no_object     = 3
+      no_permission = 4
+      OTHERS        = 5.
+
+  IF sy-subrc = 0.
+    IF temse_objtyp(3) = 'OTF' OR temse_objtyp+1(3) = 'OTF'.
+      is_otf = 'X'.
+    ENDIF.
+  ELSE.
+    c_rc = sy-subrc.
+    EXIT.
+  ENDIF.
+
+  CLEAR temse_handle.
+  CALL 'C_RSTS_OPEN_READ'
+      ID 'HANDLE'   FIELD temse_handle
+      ID 'CLIENT'   FIELD temse_client
+      ID 'NAME'     FIELD temse_name
+      ID 'PART'     FIELD temse_part
+      ID 'TYPE'     FIELD temse_objtyp
+      ID 'CONV'     FIELD ' '
+      ID 'ALLINE'   FIELD 'X'
+      ID 'BINARY'   FIELD ' '
+      ID 'RECTYP'   FIELD temse_rectyp
+      ID 'CHARCO'   FIELD codepage
+      ID 'PROM'     FIELD 'I'
+      ID 'RC'       FIELD rc
+      ID 'ERRMSG'   FIELD errmsg.
+
+  status = sy-subrc.
+  IF status <> 0 OR errmsg IS NOT INITIAL.
+    c_rc = status.
+    EXIT.
+  ENDIF.
+
+  IF status = 0.
+
+    DO.
+      PERFORM get_spool_line.
+      IF status <> 0 AND status <> 40 AND status <> 12.
+        EXIT.
+      ENDIF.
+
+      IF status <> 12.
+        IF NOT ( data_set_length IS INITIAL ).
+          data_set_line-data_length = data_set_length - 1.
+        ENDIF.
+
+        ADD 1 TO lines.
+        IF lines >= first.
+          IF use_wide IS INITIAL.
+            IF data_set_length <= 1000.
+              APPEND data_set_line TO buffer.
+            ELSE.
+              IF lines > 0.
+                buffer_wide[] = buffer[].
+                REFRESH buffer.
+              ENDIF.
+              APPEND data_set_line TO buffer_wide.
+              use_wide = 'X'.
+            ENDIF.
+          ELSE.
+            APPEND data_set_line TO buffer_wide.
+          ENDIF.
+        ENDIF.
+
+        IF ( NOT last IS INITIAL ) AND ( lines >= last ).
+          EXIT.
+        ENDIF.
+      ELSE.
+        IF lines = 0.
+          EXIT.
+        ENDIF.
+
+        IF lines < first .
+          EXIT.
+        ENDIF.
+
+        EXIT.
+      ENDIF.
+    ENDDO.
+  ENDIF.
+
+ENDFORM.
+*&--------------------------------------------------------------------*
+*&      Form  GET_SPOOL_LINE
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+FORM get_spool_line.
+
+  DATA: length  TYPE i,
+        flen    TYPE i,
+        bufflg  TYPE i,
+        c_rc(5).
+
+  DESCRIBE FIELD data_set_line LENGTH flen IN CHARACTER MODE.
+
+  IF is_otf IS NOT INITIAL.
+    bufflg = 1006.
+  ELSE.
+    bufflg = flen.
+  ENDIF.
+
+  DO.
+    IF temse_rectyp+1(1) = 'Y'.
+      CALL 'C_RSTS_READ'
+         ID 'HANDLE'  FIELD temse_handle
+         ID 'BUFF'    FIELD data_set_line
+         ID 'BUFFLG'  FIELD bufflg
+         ID 'ALLINE'  FIELD 'X'
+         ID 'BINARY'  FIELD ' '
+         ID 'SHOWLG'  FIELD 'X'
+         ID 'LENGTH'  FIELD length
+         ID 'RC'      FIELD rc
+         ID 'ERRMSG'  FIELD errmsg.
+      status = sy-subrc.
+
+    ELSE.
+      CALL 'C_RSTS_READ'
+         ID 'HANDLE'  FIELD temse_handle
+         ID 'BUFF'    FIELD data_set_line+1
+         ID 'BUFFLG'  FIELD bufflg
+         ID 'ALLINE'  FIELD 'X'
+         ID 'BINARY'  FIELD ' '
+         ID 'SHOWLG'  FIELD 'X'
+         ID 'LENGTH'  FIELD length
+         ID 'RC'      FIELD rc
+         ID 'ERRMSG'  FIELD errmsg.
+
+      status = sy-subrc.
+      data_set_line(5) = data_set_line+1(5).
+      data_set_line-precol = ' '.
+      ADD 1 TO data_set_line-data_length.
+    ENDIF.
+
+    status = sy-subrc.
+    IF status <> 0 OR errmsg IS NOT INITIAL.
+      c_rc = status.
+*      PERFORM write_trace2 USING 'C_RSTS_READ %s\n' errmsg c_rc. "#EC NOTEXT
+    ENDIF.
+
+    IF status <> 6.               " EOF, error condition, or got data
+      EXIT.
+    ENDIF.
+
+    ADD 1 TO temse_part.
+    CALL 'C_RSTS_CLOSE'
+          ID 'HANDLE'  FIELD temse_handle
+          ID 'RC'      FIELD rc
+          ID 'ERRMSG'  FIELD errmsg.
+
+    status = sy-subrc.
+    IF status = 0.
+      CALL FUNCTION 'RSTS_GET_ATTRIBUTES'
+        EXPORTING
+          authority     = 'SP01'
+          client        = temse_client                          "hjl
+          name          = temse_name
+          part          = temse_part
+        IMPORTING
+          charco        = temse_charco
+          rectyp        = temse_rectyp
+          objtype       = temse_objtyp
+        EXCEPTIONS
+          fb_error      = 1
+          fb_rsts_other = 2
+          no_object     = 3
+          no_permission = 4
+          OTHERS        = 5.
+
+      status = sy-subrc.
+    ENDIF.
+
+    IF status = 0.
+      CALL 'C_RSTS_OPEN_READ'
+        ID 'HANDLE'   FIELD temse_handle
+        ID 'CLIENT'   FIELD temse_client
+        ID 'NAME'     FIELD temse_name
+        ID 'PART'     FIELD temse_part
+        ID 'TYPE'     FIELD temse_objtyp
+        ID 'CONV'     FIELD ' '
+        ID 'ALLINE'   FIELD 'X'
+        ID 'BINARY'   FIELD ' '
+        ID 'RECTYP'   FIELD temse_rectyp
+        ID 'CHARCO'   FIELD temse_charco
+        ID 'PROM'     FIELD 'I'
+        ID 'RC'       FIELD rc
+        ID 'ERRMSG'   FIELD errmsg.
+
+      status = sy-subrc.
+    ENDIF.
+  ENDDO.
+
+  IF status = 4.
+    status = 12.
+  ENDIF.
+
+  IF status = 8.
+    status = 40.
+  ENDIF.
+
+  data_set_length = data_set_line-data_length.
+
+ENDFORM.
