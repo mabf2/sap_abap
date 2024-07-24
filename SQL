@@ -1,0 +1,15 @@
+SELECT 
+    CASE 
+      WHEN werks = '8001' THEN '8000' 
+      ELSE '7010' END as bukrs,
+    labst, 
+    verpr, 
+    labst * verpr AS salk3
+  FROM ztmm_ce_ea
+ WHERE lfgja = '2021'
+   AND lfmon = '01'
+   AND werks = '7006'
+   AND ( steuc = '8452.30.00' OR
+         steuc = '6112.31.00' )
+   AND labst > 0
+   AND verpr > 0
