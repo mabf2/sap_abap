@@ -1,0 +1,255 @@
+*---------------------------------------------------------------------
+* Programa.: 
+* Descrição: Interface para incluir registros em uma tabela, pelo arquivo TXT.
+* Data.....: 
+*---------------------------------------------------------------------
+REPORT zimporta_dados.
+
+*********************************
+* SELECTION-SCREEN
+*********************************
+SELECTION-SCREEN BEGIN OF BLOCK a1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS p_file TYPE rlgrap-filename DEFAULT 'C:\ALAN\migra.txt'.
+
+*PARAMETERS: rb_local RADIOBUTTON GROUP rd1 USER-COMMAND flg,
+*            rb_serv  RADIOBUTTON GROUP rd1 DEFAULT 'X'.
+SELECTION-SCREEN END OF BLOCK a1.
+
+*********************************
+* AT SELECTION-SCREEN
+*********************************
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  PERFORM get_file.
+
+*********************************
+* START-OF-SELECTION
+*********************************
+START-OF-SELECTION.
+  PERFORM process_file.
+
+FORM process_file.
+  DATA: lt_line TYPE TABLE OF string,
+        lt_data TYPE TABLE OF string.
+
+  DATA: "lw_line  TYPE string,
+    "lw_data  TYPE string,
+    lw_DD04L TYPE dd04l,
+    lw_dd03l TYPE dd03l,
+    lw_dd02l TYPE dd02l.
+
+  DATA: lv_file      TYPE string,
+        lv_funcao    TYPE string,
+        lv_tab       TYPE dd03l-tabname,
+        lv_campo     TYPE dd03l-fieldname,
+        lv_valor     TYPE string,
+        lv_valor_aux TYPE string.
+
+*  DATA lo_tab TYPE REF TO data.
+  DATA lo_wa TYPE REF TO data.
+
+*  FIELD-SYMBOLS: "<lfst_tab> TYPE STANDARD TABLE,
+  FIELD-SYMBOLS: <lfsw_tab>  TYPE any,
+                 <lfs_field> TYPE any,
+                 <lfsw_data> TYPE string,
+                 <lfsw_line> TYPE string.
+
+  lv_file = p_file.
+
+  CALL FUNCTION 'GUI_UPLOAD' ##FM_OLDED
+    EXPORTING
+      filename                = lv_file
+      filetype                = 'ASC'
+      CODEPAGE                = '4110' "Faz aceitar acentos.
+      has_field_separator     = 'X'
+    TABLES
+      data_tab                = lt_data
+    EXCEPTIONS
+      file_open_error         = 1
+      file_read_error         = 2
+      no_batch                = 3
+      gui_refuse_filetransfer = 4
+      invalid_type            = 5
+      no_authority            = 6
+      unknown_error           = 7
+      bad_data_format         = 8
+      header_not_allowed      = 9
+      separator_not_allowed   = 10
+      header_too_long         = 11
+      unknown_dp_error        = 12
+      access_denied           = 13
+      dp_out_of_memory        = 14
+      disk_full               = 15
+      dp_timeout              = 16
+      OTHERS                  = 17.
+
+  IF sy-subrc <> 0.
+*     Erro GUI_UPLOAD!
+    MESSAGE i000(su) WITH TEXT-003 sy-subrc.
+    STOP.
+  ENDIF.
+
+  REFRESH lt_line.
+  LOOP AT lt_data ASSIGNING <lfsw_data>.
+    SPLIT <lfsw_data> AT '|' INTO TABLE lt_line.
+
+    LOOP AT lt_line ASSIGNING <lfsw_line>.
+*     Obtem o nome da tabela e cria a tabela e a estrutura.
+      IF sy-tabix = '1'.
+        lv_tab = <lfsw_line>.
+**       Tabela dinâmica
+*        free lo_tab.
+*        CREATE DATA lo_tab TYPE TABLE OF (lv_tab).
+*        ASSIGN lo_tab->* TO <lfst_tab>.
+
+        CLEAR lw_dd02l.
+        SELECT SINGLE *
+        INTO lw_dd02l
+        FROM dd02l
+        WHERE tabname = lv_tab
+          AND as4local = 'A'
+          AND as4vers = '0000'.
+        IF lw_dd02l IS INITIAL.
+*         Tabela XXXX não encontrada!
+          MESSAGE i000(su) WITH TEXT-008 lv_campo TEXT-010 lv_tab DISPLAY LIKE 'E'.
+          STOP.
+        ENDIF.
+
+*        IF lv_tab(1) <> 'Z'.
+**       Tabela XXX não é uma tabela Z!
+*          MESSAGE i000(su) WITH TEXT-008 lv_tab TEXT-009 DISPLAY LIKE 'E'.
+*          STOP.
+*        ENDIF.
+
+*       Estrutura da tabela dinâmica
+        FREE lo_wa.
+        CREATE DATA lo_wa TYPE (lv_tab).
+        ASSIGN lo_wa->* TO <lfsw_tab>.
+
+*     Associa os campos da tabela na estrutura.
+      ELSE.
+        SPLIT <lfsw_line> AT ';' INTO lv_campo
+                                      lv_valor.
+        CHECK lv_valor IS NOT INITIAL. "Não considera campo vazio!
+
+        CLEAR lw_DD03L.
+        SELECT *
+        INTO lw_DD03L
+        UP TO 1 ROWS
+        FROM dd03l
+        WHERE tabname = lv_tab
+          AND fieldname = lv_campo
+          AND as4local = 'A'
+          AND as4vers = '0000'.
+        ENDSELECT.
+
+        IF lw_DD03L IS INITIAL.
+*         Campo XXXX não encontrado para a tabela: XXXX
+          MESSAGE i000(su) WITH TEXT-004 lv_campo TEXT-005 lv_tab DISPLAY LIKE 'E'.
+          STOP.
+        ENDIF.
+
+        ASSIGN COMPONENT lv_campo OF STRUCTURE <lfsw_tab> TO <lfs_field>.
+
+        CASE lw_DD03L-inttype.
+          WHEN 'I'.
+            REPLACE ALL OCCURRENCES OF '.' IN lv_valor WITH ''.
+            CONDENSE lv_valor NO-GAPS.
+
+          WHEN 'P'.
+            REPLACE ALL OCCURRENCES OF '.' IN lv_valor WITH ''.
+            REPLACE ',' WITH '.' INTO lv_valor.
+            CONDENSE lv_valor NO-GAPS.
+
+          WHEN 'D'.
+            CLEAR lv_valor_aux.
+            CONCATENATE lv_valor+6(4) lv_valor+3(2) lv_valor(2) INTO lv_valor_aux.
+
+            CLEAR lv_valor.
+            lv_valor = lv_valor_aux.
+          WHEN 'T'.
+            REPLACE ALL OCCURRENCES OF ':' IN lv_valor WITH ''.
+            CONDENSE lv_valor NO-GAPS.
+
+        ENDCASE.
+
+*       Se for CNPJ
+        IF lw_DD03L-domname = 'J_1BCGC'.
+          CLEAR lv_valor_aux.
+          lv_valor_aux = lv_valor(18).
+          CLEAR lv_valor.
+          lv_valor = lv_valor_aux.
+        ENDIF.
+
+        CLEAR lw_DD04L.
+        SELECT SINGLE *
+        INTO lw_DD04L
+        FROM dd04l
+        WHERE rollname = lw_DD03L-rollname
+          AND as4local = 'A'
+          AND as4vers = '0000'.
+
+        IF lw_DD04L-convexit IS NOT INITIAL.
+          CLEAR lv_funcao.
+          CONCATENATE 'CONVERSION_EXIT_' lw_DD04L-convexit '_INPUT' INTO lv_funcao.
+          CALL FUNCTION lv_funcao
+            EXPORTING
+              input        = lv_valor
+            IMPORTING
+              output       = lv_valor
+            EXCEPTIONS
+              length_error = 1
+              OTHERS       = 2.
+
+          IF sy-subrc <> 0.
+*           Erro na conversão do campo XXXX valor XXXX.
+            MESSAGE i000(su) WITH TEXT-006 lv_campo TEXT-007 <lfs_field> DISPLAY LIKE 'E'.
+            STOP.
+          ENDIF.
+        ENDIF.
+
+        <lfs_field> = lv_valor.
+
+
+      ENDIF.
+    ENDLOOP.
+
+*   Aqui temos a linha da estrutura preenchida.
+*   Agora só incluir o campo na tabela.
+
+    MODIFY (lv_tab) FROM <lfsw_tab>.
+    COMMIT WORK.
+
+  ENDLOOP.
+
+ENDFORM.
+
+FORM get_file.
+  DATA lv_title TYPE string.
+*        lv_file  TYPE string.
+
+*  IF rb_serv IS INITIAL.
+  lv_title = TEXT-002.
+  CALL FUNCTION 'WS_FILENAME_GET' ##FM_OLDED ##FM_SUBRC_OK
+    EXPORTING
+      def_filename = ' '
+      def_path     = 'C:\'
+*     mask         = ',Texto,*.txt,Todos,*.*.'
+      mode         = 'O'
+      title        = lv_title
+    IMPORTING
+      filename     = p_file
+                     EXCEPTIONS
+                     OTHERS.
+
+*  ELSE.
+*    CALL FUNCTION '/SAPDMC/LSM_F4_SERVER_FILE'
+*      IMPORTING
+*        serverfile = lv_file
+*      EXCEPTIONS
+*        OTHERS     = 0.
+*
+*    p_file = lv_file.
+*
+*  ENDIF.
+
+ENDFORM.                    "get_file
