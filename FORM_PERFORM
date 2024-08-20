@@ -1,0 +1,3 @@
+                    PERFORM change_itemtax    USING lw_xkomvt
+                                                    lw_j1bnftxcond-rate_map
+                                           CHANGING gbobj_item_tax[].
