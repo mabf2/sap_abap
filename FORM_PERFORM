@@ -1,3 +1,32 @@
-                    PERFORM change_itemtax    USING lw_xkomvt
-                                                    lw_j1bnftxcond-rate_map
-                                           CHANGING gbobj_item_tax[].
+*&----------------------------------------------------------------------------------------*
+TYPES: BEGIN OF ty_item_tax,
+         nfobjn LIKE j_1binterf-nfobjn.
+         INCLUDE STRUCTURE j_1bnfstx.
+TYPES: END OF ty_item_tax,
+
+tt_item_tax TYPE TABLE OF ty_item_tax.
+
+PERFORM change_itemtax    USING lw_xkomvt
+                                lw_j1bnftxcond-rate_map
+                       CHANGING gbobj_item_tax[].
+
+FORM change_itemtax  USING    p_xkomvt   TYPE komv_index
+                              p_rate_map TYPE j_1bnftxcond-rate_map
+                     CHANGING p_item_tax TYPE tt_item_tax.
+
+*&----------------------------------------------------------------------------------------*
+TYPES: tt_ctelog    TYPE SORTED TABLE OF ztb_ctelog    WITH UNIQUE KEY cte direct pas num,
+DATA: lt_ctelog     TYPE SORTED TABLE OF ztb_ctelog WITH UNIQUE KEY cte direct pas num,
+
+PERFORM move_data    USING lv_direct
+                           gc_pas
+                           lw_return
+                           lw_ctedocftp-cte
+                  CHANGING lt_ctelog.
+
+FORM move_data  USING    p_direct     TYPE ztb_ctelog-direct
+                         p_pas        TYPE ztb_ctelog-pas
+                         p_return     TYPE bapiret2
+                         p_cte        TYPE ztb_ctexmldoc-cte
+                CHANGING p_ctelog     TYPE tt_ctelog.
+*&----------------------------------------------------------------------------------------*
