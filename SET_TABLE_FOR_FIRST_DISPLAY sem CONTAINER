@@ -1,0 +1,486 @@
+*&---------------------------------------------------------------------*
+*& Report ZJOBTOEMAIL
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zjobtoemail.
+
+CALL SCREEN 0100.
+
+*&---------------------------------------------------------------------*
+*& CLASS DEFINITION
+*&---------------------------------------------------------------------*
+CLASS lcl_event_handler DEFINITION.
+
+  PUBLIC SECTION.
+
+    METHODS:
+      handle_data_changed
+        FOR EVENT data_changed OF cl_gui_alv_grid
+        IMPORTING er_data_changed,
+
+      handle_data_changed_finished
+        FOR EVENT data_changed_finished OF cl_gui_alv_grid
+        IMPORTING e_modified
+                  et_good_cells.
+
+  PRIVATE SECTION.
+    DATA: error_in_data TYPE c.
+
+ENDCLASS.                    "lcl_event_handler DEFINITION
+*&---------------------------------------------------------------------*
+*& CLASS IMPLEMENTATION
+*&---------------------------------------------------------------------*
+CLASS lcl_event_handler IMPLEMENTATION.
+*&---------------------------------------------------------------------*
+*& METHOD handle_data_changed
+*&---------------------------------------------------------------------*
+  METHOD handle_data_changed.
+
+    error_in_data = abap_false.
+
+    PERFORM hdc TABLES er_data_changed->mt_mod_cells
+                       er_data_changed->mt_deleted_rows
+                       er_data_changed->mt_inserted_rows.
+
+  ENDMETHOD.                    "handle_data_changed
+*&---------------------------------------------------------------------*
+*& METHOD handle_data_changed_finished
+*&---------------------------------------------------------------------*
+  METHOD handle_data_changed_finished.
+
+    CHECK e_modified EQ abap_true.
+
+    PERFORM: hdcf TABLES et_good_cells,
+             refresh.
+
+  ENDMETHOD.                    "handle_data_changed_finished
+
+ENDCLASS.                    "lcl_event_handler IMPLEMENTATION
+
+TYPES: BEGIN OF ty_data.
+         INCLUDE STRUCTURE zjobtoemail.
+TYPES:   cellstyles TYPE lvc_t_styl,
+       END OF ty_data.
+
+DATA: gt_data          TYPE TABLE OF ty_data,
+      gt_datadel       TYPE TABLE OF zjobtoemail,
+      gt_datamod       TYPE TABLE OF zjobtoemail,
+      gt_fieldcatalog  TYPE lvc_t_fcat,
+      gt_exclude       TYPE ui_functions,
+      gt_mod_cells     TYPE TABLE OF lvc_s_modi,
+      gt_deleted_rows	 TYPE TABLE OF lvc_s_moce,
+      gt_inserted_rows TYPE TABLE OF lvc_s_moce,
+      gt_good_cells    TYPE TABLE OF lvc_s_modi,
+
+      go_splitter      TYPE REF TO cl_gui_splitter_container,
+      go_container     TYPE REF TO cl_gui_container,
+      go_event         TYPE REF TO lcl_event_handler,
+      go_alv           TYPE REF TO cl_gui_alv_grid,
+
+      gs_variant       TYPE disvariant,
+      gs_layout        TYPE lvc_s_layo.
+
+CONSTANTS gc_tabname TYPE dd02l-tabname VALUE 'ZJOBTOEMAIL'.
+
+*&---------------------------------------------------------------------*
+*& Module STATUS_0100 OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+
+  CALL FUNCTION 'ENQUEUE_EZ_CPROG'
+    EXPORTING
+      mode_reposrc   = 'E'
+      progname       = sy-cprog
+      x_progname     = ' '
+      _scope         = '2'
+      _wait          = ' '
+      _collect       = ' '
+    EXCEPTIONS
+      foreign_lock   = 1
+      system_failure = 2
+      OTHERS         = 3.
+
+  IF sy-subrc EQ 0.
+    gs_layout-edit = abap_true.
+  ENDIF.
+
+  SET PF-STATUS '0100'.
+  SET TITLEBAR '0100'.
+
+  IF go_alv IS NOT BOUND.
+    gs_layout-zebra      = abap_true.
+    gs_layout-cwidth_opt = abap_true.
+    gs_layout-stylefname = 'CELLSTYLES'.
+    gs_layout-sel_mode   = 'A'.
+
+    gs_variant-report     = sy-repid.
+    gs_variant-username   = sy-uname.
+
+    APPEND: cl_gui_alv_grid=>mc_fc_filter            TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_sum               TO gt_exclude,
+            cl_gui_alv_grid=>mc_mb_sum               TO gt_exclude,
+            cl_gui_alv_grid=>mc_mb_variant           TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_help              TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_loc_undo          TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_graph             TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_print             TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_print_prev        TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_info              TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_detail            TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_to_office         TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_views             TO gt_exclude,
+            cl_gui_alv_grid=>mc_fc_pc_file           TO gt_exclude,
+            cl_gui_alv_grid=>mc_mb_export            TO gt_exclude.
+
+    SELECT * FROM (gc_tabname)
+      INTO CORRESPONDING FIELDS OF TABLE gt_data.
+
+    PERFORM: create_fc,
+             preenche_style.
+
+    CREATE OBJECT go_splitter
+      EXPORTING
+        parent  = cl_gui_container=>default_screen
+        rows    = 1
+        columns = 1.
+
+    CALL METHOD go_splitter->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_container.
+
+    CREATE OBJECT go_alv
+      EXPORTING
+        i_parent          = go_container
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    CREATE OBJECT go_event.
+    SET HANDLER go_event->handle_data_changed FOR go_alv.
+    SET HANDLER go_event->handle_data_changed_finished FOR go_alv.
+
+    CALL METHOD go_alv->register_edit_event
+      EXPORTING
+        i_event_id = cl_gui_alv_grid=>mc_evt_modified.
+
+    CALL METHOD go_alv->set_table_for_first_display
+      EXPORTING
+        i_structure_name     = gc_tabname
+        is_variant           = gs_variant
+        i_save               = 'A'
+        is_layout            = gs_layout
+        it_toolbar_excluding = gt_exclude
+      CHANGING
+        it_outtab            = gt_data
+        it_fieldcatalog      = gt_fieldcatalog.
+
+    CALL METHOD go_alv->set_toolbar_interactive.
+
+    CALL METHOD cl_gui_control=>set_focus
+      EXPORTING
+        control = go_alv.
+  ELSE.
+
+    PERFORM refresh.
+  ENDIF.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'BACK' OR 'LEAV' OR 'CANC'.
+      CALL FUNCTION 'DEQUEUE_EZ_CPROG'
+        EXPORTING
+          mode_reposrc = 'E'
+          progname     = sy-cprog
+          x_progname   = ' '
+          _scope       = '3'
+          _synchron    = ' '
+          _collect     = ' '.
+
+      SET SCREEN 0.
+      LEAVE LIST-PROCESSING.
+
+    WHEN 'SAVE'.
+      DELETE zjobtoemail FROM TABLE @gt_datadel.
+      IF sy-dbcnt GT 0.
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+          EXPORTING
+            wait = abap_true.
+      ENDIF.
+
+      MODIFY zjobtoemail FROM TABLE @gt_datamod.
+      IF sy-dbcnt GT 0.
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+          EXPORTING
+            wait = abap_true.
+      ENDIF.
+
+      REFRESH: gt_datamod,
+               gt_datadel.
+
+  ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*& Form create_fc
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM create_fc.
+
+  DATA lt_fieldcatalog TYPE TABLE OF dfies.
+
+  REFRESH gt_fieldcatalog.
+
+  CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_structure_name       = gc_tabname
+    CHANGING
+      ct_fieldcat            = gt_fieldcatalog
+    EXCEPTIONS
+      inconsistent_interface = 1
+      program_error          = 2
+      OTHERS                 = 3.
+
+  CALL FUNCTION 'DDIF_NAMETAB_GET'
+    EXPORTING
+      tabname   = gc_tabname
+    TABLES
+      dfies_tab = lt_fieldcatalog
+    EXCEPTIONS
+      not_found = 1
+      OTHERS    = 2.
+
+  LOOP AT gt_fieldcatalog ASSIGNING FIELD-SYMBOL(<fs_fieldcatalog>).
+    DATA(lv_idx) = sy-tabix.
+
+    <fs_fieldcatalog>-reptext   = <fs_fieldcatalog>-scrtext_l.
+    <fs_fieldcatalog>-txt_field = <fs_fieldcatalog>-scrtext_l(30).
+
+    IF <fs_fieldcatalog>-reptext IS INITIAL AND
+       lines( lt_fieldcatalog ) GT 0.
+      READ TABLE lt_fieldcatalog INTO DATA(lw_fieldcatalog_) WITH KEY tabname   = gc_tabname
+                                                                      fieldname = <fs_fieldcatalog>-fieldname.
+      IF sy-subrc EQ 0.
+        SELECT SINGLE domname FROM dd04l
+          INTO <fs_fieldcatalog>-domname
+         WHERE rollname EQ lw_fieldcatalog_-rollname
+           AND as4local EQ 'A'
+           AND as4vers EQ '0000'.
+      ENDIF.
+
+      PERFORM domain_text CHANGING <fs_fieldcatalog>.
+
+      <fs_fieldcatalog>-scrtext_l =
+      <fs_fieldcatalog>-scrtext_m =
+      <fs_fieldcatalog>-scrtext_s = <fs_fieldcatalog>-reptext.
+    ENDIF.
+
+    <fs_fieldcatalog>-outputlen = strlen( <fs_fieldcatalog>-reptext ).
+
+    CLEAR: <fs_fieldcatalog>-tabname,
+           <fs_fieldcatalog>-domname,
+           <fs_fieldcatalog>-ref_field,
+           <fs_fieldcatalog>-ref_table.
+  ENDLOOP.
+
+  SORT gt_fieldcatalog BY row_pos col_pos.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form DOMAIN_TEXT
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM domain_text  CHANGING p_fcat    TYPE lvc_s_fcat.
+
+  DATA lt_dd04t TYPE TABLE OF dd04t.
+
+  IF p_fcat-reptext   IS INITIAL AND
+     p_fcat-txt_field IS INITIAL AND
+     p_fcat-domname   IS NOT INITIAL.
+
+    CALL FUNCTION 'DD_DTEL_GET'
+      EXPORTING
+        roll_name     = p_fcat-domname
+      TABLES
+        dd04t_tab_a   = lt_dd04t
+      EXCEPTIONS
+        illegal_value = 1
+        OTHERS        = 2.
+
+  ENDIF.
+
+  READ TABLE lt_dd04t INTO DATA(ls_dd04t) WITH KEY ddlanguage = 'PT'
+                                                   as4local   = 'A'
+                                                   as4vers    = '0000'.
+  IF sy-subrc EQ 0.
+    PERFORM domain_textt    USING ls_dd04t
+                         CHANGING p_fcat.
+  ELSE.
+    READ TABLE lt_dd04t INTO ls_dd04t WITH KEY ddlanguage = 'EN'
+                                               as4local   = 'A'
+                                               as4vers    = '0000'.
+    IF sy-subrc EQ 0.
+      PERFORM domain_textt    USING ls_dd04t
+                           CHANGING p_fcat.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form DOMAIN_TEXTT
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM domain_textt  USING    p_dd04t TYPE dd04t
+                   CHANGING p_fcat  TYPE lvc_s_fcat.
+
+  IF p_fcat-reptext IS INITIAL.
+    IF     p_dd04t-reptext   IS NOT INITIAL.
+      MOVE p_dd04t-reptext   TO p_fcat-reptext.
+
+    ELSEIF p_dd04t-scrtext_s IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_s TO p_fcat-reptext.
+
+    ELSEIF p_dd04t-scrtext_m IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_m TO p_fcat-reptext.
+
+    ELSEIF p_dd04t-scrtext_l IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_l TO p_fcat-reptext.
+
+    ELSEIF p_dd04t-ddtext    IS NOT INITIAL.
+      MOVE p_dd04t-ddtext    TO p_fcat-reptext.
+
+    ENDIF.
+  ENDIF.
+
+  IF p_fcat-txt_field IS INITIAL.
+    IF     p_dd04t-reptext   IS NOT INITIAL.
+      MOVE p_dd04t-reptext   TO p_fcat-txt_field.
+
+    ELSEIF p_dd04t-scrtext_s IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_s TO p_fcat-txt_field.
+
+    ELSEIF p_dd04t-scrtext_m IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_m TO p_fcat-txt_field.
+
+    ELSEIF p_dd04t-scrtext_l IS NOT INITIAL.
+      MOVE p_dd04t-scrtext_l TO p_fcat-txt_field.
+
+    ELSEIF p_dd04t-ddtext    IS NOT INITIAL.
+      MOVE p_dd04t-ddtext    TO p_fcat-txt_field.
+
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form refresh
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM refresh .
+
+  go_alv->refresh_table_display(
+        EXPORTING
+          i_soft_refresh = abap_true
+      ).
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form PREENCHE_STYLE
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM preenche_style .
+
+  DATA: lt_fieldcatalog TYPE TABLE OF dfies,
+        ls_cellstyles   TYPE lvc_s_styl,
+        lt_cellstyles   TYPE TABLE OF lvc_s_styl.
+
+  CALL FUNCTION 'DDIF_NAMETAB_GET'
+    EXPORTING
+      tabname   = gc_tabname
+    TABLES
+      dfies_tab = lt_fieldcatalog
+    EXCEPTIONS
+      not_found = 1
+      OTHERS    = 2.
+
+  LOOP AT lt_fieldcatalog INTO DATA(lw_fieldcatalog).
+    ls_cellstyles-fieldname = lw_fieldcatalog-fieldname.
+    READ TABLE lt_fieldcatalog TRANSPORTING NO FIELDS WITH KEY fieldname = lw_fieldcatalog-fieldname
+                                                               keyflag   = abap_true.
+    IF sy-subrc EQ 0.
+      ls_cellstyles-style = cl_gui_alv_grid=>mc_style_disabled.
+    ELSE.
+      ls_cellstyles-style = cl_gui_alv_grid=>mc_style_enabled.
+    ENDIF.
+
+    INSERT ls_cellstyles INTO TABLE lt_cellstyles.
+  ENDLOOP.
+
+  LOOP AT gt_data ASSIGNING FIELD-SYMBOL(<fs_data>).
+    <fs_data>-cellstyles[] = lt_cellstyles.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form hdc
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM hdc  TABLES   p_mod_cells     STRUCTURE lvc_s_modi
+                   p_deleted_rows  STRUCTURE lvc_s_moce
+                   p_inserted_rows STRUCTURE lvc_s_moce.
+
+  DATA lw_zjobtoemail TYPE zjobtoemail.
+
+  LOOP AT p_deleted_rows INTO DATA(lw_deleted_rows).
+    READ TABLE gt_data INTO DATA(lw_data) INDEX lw_deleted_rows-row_id.
+    CHECK sy-subrc EQ 0.
+
+    MOVE-CORRESPONDING lw_data TO lw_zjobtoemail.
+    INSERT lw_zjobtoemail INTO TABLE gt_datadel.
+
+    DELETE gt_datamod WHERE progname EQ lw_zjobtoemail-progname
+                        AND variant  EQ lw_zjobtoemail-variant
+                        AND status   EQ lw_zjobtoemail-status
+                        AND counter  EQ lw_zjobtoemail-counter.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form hdcf
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM hdcf  TABLES   p_good_cells STRUCTURE lvc_s_modi.
+
+  DATA lw_zjobtoemail TYPE zjobtoemail.
+
+  LOOP AT p_good_cells INTO DATA(lw_good_cells).
+    READ TABLE gt_data INTO DATA(lw_data) INDEX lw_good_cells-row_id.
+    CHECK sy-subrc EQ 0.
+
+    MOVE-CORRESPONDING lw_data TO lw_zjobtoemail.
+    INSERT lw_zjobtoemail INTO TABLE gt_datamod.
+  ENDLOOP.
+
+ENDFORM.
