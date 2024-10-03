@@ -8,7 +8,7 @@ FIELD-SYMBOLS: <table>    TYPE STANDARD TABLE,
                <wa_table> TYPE ANY.
 
 TYPES: BEGIN OF ty_select,
-         line TYPE fieldname,
+         line TYPE char75, "fieldname,
        END OF ty_select.
 
 DATA: t_campos TYPE TABLE OF ty_select WITH HEADER LINE,
