@@ -15,15 +15,15 @@ DATA: t_campos TYPE TABLE OF ty_select WITH HEADER LINE,
       t_tables TYPE TABLE OF ty_select WITH HEADER LINE,
       t_where  TYPE TABLE OF ty_select WITH HEADER LINE.
 
-r_fieldcat-fieldname = 'KUNNR'.
-r_fieldcat-ref_field = 'KUNNR'.
-r_fieldcat-ref_table  = 'KNA1'.
-APPEND r_fieldcat TO fieldcat.
-
-r_fieldcat-fieldname = 'NAME1'.
-r_fieldcat-ref_field = 'NAME1'.
-r_fieldcat-ref_table  = 'KNA1'.
-APPEND r_fieldcat TO fieldcat.
+CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+  EXPORTING
+    i_structure_name       = lv_tabname
+  CHANGING
+    ct_fieldcat            = fieldcat
+  EXCEPTIONS
+    inconsistent_interface = 1
+    program_error          = 2
+    OTHERS                 = 3.
 
 CALL METHOD cl_alv_table_create=>create_dynamic_table
   EXPORTING
@@ -32,13 +32,6 @@ CALL METHOD cl_alv_table_create=>create_dynamic_table
     ep_table        = d_reference.
 
 ASSIGN d_reference->* TO <table>.
-
-LOOP AT fieldcat INTO r_fieldcat  .
-  t_campos-line = r_fieldcat-fieldname.
-  APPEND t_campos.
-ENDLOOP.
-
-t_tables-line = 'KNA1'.
 
 t_where-line = 'KUNNR = ''0000006251'' OR'.
 APPEND t_where.
