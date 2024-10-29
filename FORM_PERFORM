@@ -15,7 +15,7 @@ FORM change_itemtax  USING    p_xkomvt   TYPE komv_index
                      CHANGING p_item_tax TYPE tt_item_tax.
 
 *&----------------------------------------------------------------------------------------*
-TYPES: tt_ctelog    TYPE SORTED TABLE OF ztb_ctelog    WITH UNIQUE KEY cte direct pas num,
+TYPES: tt_ctelog    TYPE SORTED TABLE OF ztb_ctelog WITH UNIQUE KEY cte direct pas num,
 DATA: lt_ctelog     TYPE SORTED TABLE OF ztb_ctelog WITH UNIQUE KEY cte direct pas num,
 
 PERFORM move_data    USING lv_direct
