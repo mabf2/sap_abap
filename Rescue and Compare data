@@ -50,204 +50,216 @@ MODULE status_0100 OUTPUT.
 
     DATA: lv_rfcdest     TYPE rfcdest,
           lv_fnameprim   TYPE lvc_fname,
-          lv_fdpos       TYPE i,
+          lv_sysid_l     TYPE syst-sysid,
+          lv_sysid_r     TYPE syst-sysid,
 
           lt_where       TYPE TABLE OF ty_select,
           lt_dbtabdata_l TYPE zdbtabdata,
           lt_dbtabdata_r TYPE zdbtabdata,
+          lt_ret2        TYPE TABLE OF zsbc_range_type_2.
 
-          lw_value       TYPE zsbc_range_type.
+    SELECT COUNT(*) FROM dd09l
+      WHERE tabname EQ @ptabname
+       AND tabart EQ 'APPL2'.
 
-    CALL FUNCTION 'ZRESCUEDATA'
-      EXPORTING
-        dbtabname = ptabname
-      CHANGING
-        dbtabdata = lt_dbtabdata_l.
+    IF sy-dbcnt GT 0.
+      CALL FUNCTION 'ZFMBC_GET_PARAMETER_2'
+        EXPORTING
+          i_process_id = 'COMPAREDATA'
+        TABLES
+          t_ret        = lt_ret2.
 
-    CALL FUNCTION 'ZFMBC_GET_PARAMETER'
-      EXPORTING
-        i_process_id = 'COMPAREDATA'
-        i_field_name = 'RFC'
-      IMPORTING
-        e_value      = lw_value.
-
-    IF lw_value-low IS NOT INITIAL.
-      lv_rfcdest = lw_value-low.
+      "Local
+      lv_rfcdest = 'NONE'.
+      READ TABLE lt_ret2 INTO DATA(lw_ret2) WITH KEY field_name = 'RFC_L'.
+      IF sy-subrc EQ 0.
+        lv_rfcdest = lw_ret2-low.
+      ENDIF.
 
       CALL FUNCTION 'ZRESCUEDATA'
         DESTINATION lv_rfcdest
         EXPORTING
           dbtabname = ptabname
         CHANGING
-          dbtabdata = lt_dbtabdata_r.
+          dbtabdata = lt_dbtabdata_l
+          sysid     = lv_sysid_l.
 
-      SELECT SINGLE rfcoptions FROM rfcdes
-       WHERE rfcdest EQ @lv_rfcdest
-        INTO @DATA(lv_rfcoptions).
-
-      IF lv_rfcoptions CS 'I='.
-        lv_fdpos = sy-fdpos + 2.
-        lv_rfcoptions = lv_rfcoptions+lv_fdpos(3).
+      "Remote
+      lv_rfcdest = 'NONE'.
+      READ TABLE lt_ret2 INTO lw_ret2 WITH KEY field_name = 'RFC_R'.
+      IF sy-subrc EQ 0.
+        lv_rfcdest = lw_ret2-low.
       ENDIF.
-    ENDIF.
 
-    gs_variant-report     = sy-repid.
-    gs_variant-username   = sy-uname.
-
-    gs_layout-zebra      = abap_true.
-    gs_layout-cwidth_opt = abap_true.
-    gs_layout-sel_mode   = 'A'.
-
-    APPEND: cl_gui_alv_grid=>mc_fc_filter            TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_sum               TO gt_exclude,
-            cl_gui_alv_grid=>mc_mb_sum               TO gt_exclude,
-            cl_gui_alv_grid=>mc_mb_variant           TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_help              TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_loc_undo          TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_graph             TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_print             TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_print_prev        TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_info              TO gt_exclude,
-            cl_gui_alv_grid=>mc_fc_detail            TO gt_exclude.
-
-    PERFORM create_fc.
-
-    CREATE OBJECT go_splitter
-      EXPORTING
-        parent  = cl_gui_container=>default_screen
-        rows    = 1
-        columns = 1.
-
-    CALL METHOD go_splitter->get_container
-      EXPORTING
-        row       = 1
-        column    = 1
-      RECEIVING
-        container = go_container.
-
-    CREATE OBJECT go_alv
-      EXPORTING
-        i_parent          = go_container
-      EXCEPTIONS
-        error_cntl_create = 1
-        error_cntl_init   = 2
-        error_cntl_link   = 3
-        error_dp_create   = 4
-        OTHERS            = 5.
-
-    DO 3 TIMES.
-      CLEAR reference.
-
-      CALL METHOD cl_alv_table_create=>create_dynamic_table
+      CALL FUNCTION 'ZRESCUEDATA'
+        DESTINATION lv_rfcdest
         EXPORTING
-          it_fieldcatalog = gt_fieldcatalog
-        IMPORTING
-          ep_table        = reference.
+          dbtabname = ptabname
+        CHANGING
+          dbtabdata = lt_dbtabdata_r
+          sysid     = lv_sysid_r.
 
-      CASE sy-index.
-        WHEN 1. ASSIGN reference->* TO <itab>.
-        WHEN 2. ASSIGN reference->* TO <itab_l>.
-        WHEN 3. ASSIGN reference->* TO <itab_r>.
-      ENDCASE.
-    ENDDO.
+      gs_variant-report     = sy-repid.
+      gs_variant-username   = sy-uname.
 
-    "Local
-    IF lines( lt_dbtabdata_l ) GT 0.
-      READ TABLE lt_dbtabdata_l INTO DATA(lw_dbtabdata) INDEX 1.
-      lv_fnameprim = lw_dbtabdata-fieldname.
+      gs_layout-zebra      = abap_true.
+      gs_layout-cwidth_opt = abap_true.
+      gs_layout-sel_mode   = 'A'.
 
-      LOOP AT lt_dbtabdata_l INTO lw_dbtabdata.
-        IF lv_fnameprim EQ lw_dbtabdata-fieldname.
-          APPEND INITIAL LINE TO <itab_l> ASSIGNING <wa_itab_l>.
-        ENDIF.
+      APPEND: cl_gui_alv_grid=>mc_fc_filter            TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_sum               TO gt_exclude,
+              cl_gui_alv_grid=>mc_mb_sum               TO gt_exclude,
+              cl_gui_alv_grid=>mc_mb_variant           TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_help              TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_loc_undo          TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_graph             TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_print             TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_print_prev        TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_info              TO gt_exclude,
+              cl_gui_alv_grid=>mc_fc_detail            TO gt_exclude.
 
-        ASSIGN COMPONENT lw_dbtabdata-fieldname OF STRUCTURE <wa_itab_l> TO FIELD-SYMBOL(<fieldvalue>).
-        IF <fieldvalue> IS ASSIGNED.
-          MOVE lw_dbtabdata-fieldvalu TO <fieldvalue>.
-        ENDIF.
-      ENDLOOP.
-    ENDIF.
+      PERFORM create_fc.
 
-    "Remote
-    IF lines( lt_dbtabdata_r ) GT 0.
-      READ TABLE lt_dbtabdata_r INTO lw_dbtabdata INDEX 1.
-      lv_fnameprim = lw_dbtabdata-fieldname.
+      CREATE OBJECT go_splitter
+        EXPORTING
+          parent  = cl_gui_container=>default_screen
+          rows    = 1
+          columns = 1.
 
-      LOOP AT lt_dbtabdata_r INTO lw_dbtabdata.
-        IF lv_fnameprim EQ lw_dbtabdata-fieldname.
-          APPEND INITIAL LINE TO <itab_r> ASSIGNING <wa_itab_r>.
-        ENDIF.
+      CALL METHOD go_splitter->get_container
+        EXPORTING
+          row       = 1
+          column    = 1
+        RECEIVING
+          container = go_container.
 
-        ASSIGN COMPONENT lw_dbtabdata-fieldname OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
-        IF <fieldvalue> IS ASSIGNED.
-          MOVE lw_dbtabdata-fieldvalu TO <fieldvalue>.
-        ENDIF.
-      ENDLOOP.
-    ENDIF.
+      CREATE OBJECT go_alv
+        EXPORTING
+          i_parent          = go_container
+        EXCEPTIONS
+          error_cntl_create = 1
+          error_cntl_init   = 2
+          error_cntl_link   = 3
+          error_dp_create   = 4
+          OTHERS            = 5.
 
-    LOOP AT gt_fieldcatalog INTO DATA(lw_fieldcatalog).
-      CHECK lw_fieldcatalog-fieldname NE 'SYSID'.
+      DO 3 TIMES.
+        CLEAR reference.
 
-      APPEND INITIAL LINE TO gt_sort ASSIGNING FIELD-SYMBOL(<fs_sort>).
-      <fs_sort>-name = lw_fieldcatalog-fieldname.
-    ENDLOOP.
+        CALL METHOD cl_alv_table_create=>create_dynamic_table
+          EXPORTING
+            it_fieldcatalog = gt_fieldcatalog
+          IMPORTING
+            ep_table        = reference.
 
-    APPEND INITIAL LINE TO gt_sort ASSIGNING <fs_sort>.
-    <fs_sort>-name = 'SYSID'.
+        CASE sy-index.
+          WHEN 1. ASSIGN reference->* TO <itab>.
+          WHEN 2. ASSIGN reference->* TO <itab_l>.
+          WHEN 3. ASSIGN reference->* TO <itab_r>.
+        ENDCASE.
+      ENDDO.
 
-    SORT: <itab_l> BY (gt_sort),
-          <itab_r> BY (gt_sort).
+      "Local
+      IF lines( lt_dbtabdata_l ) GT 0.
+        READ TABLE lt_dbtabdata_l INTO DATA(lw_dbtabdata) INDEX 1.
+        lv_fnameprim = lw_dbtabdata-fieldname.
 
-    "Procura dados do Local no Remoto
-    LOOP AT <itab_l> ASSIGNING <wa_itab_l>.
-      PERFORM monta_where USING <wa_itab_l>.
+        LOOP AT lt_dbtabdata_l INTO lw_dbtabdata.
+          IF lv_fnameprim EQ lw_dbtabdata-fieldname.
+            APPEND INITIAL LINE TO <itab_l> ASSIGNING <wa_itab_l>.
+          ENDIF.
 
-      LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where).
-      ENDLOOP.
-
-      IF sy-subrc NE 0.
-        ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
-        IF <fieldvalue> IS ASSIGNED.
-          MOVE sy-sysid TO <fieldvalue>.
-        ENDIF.
-
-        APPEND <wa_itab_l> TO <itab>.
+          ASSIGN COMPONENT lw_dbtabdata-fieldname OF STRUCTURE <wa_itab_l> TO FIELD-SYMBOL(<fieldvalue>).
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE lw_dbtabdata-fieldvalu TO <fieldvalue>.
+          ENDIF.
+        ENDLOOP.
       ENDIF.
-    ENDLOOP.
 
-    "Procura dados do Remoto no Local
-    LOOP AT <itab_r> ASSIGNING <wa_itab_r>.
-      PERFORM monta_where USING <wa_itab_r>.
+      "Remote
+      IF lines( lt_dbtabdata_r ) GT 0.
+        READ TABLE lt_dbtabdata_r INTO lw_dbtabdata INDEX 1.
+        lv_fnameprim = lw_dbtabdata-fieldname.
 
-      LOOP AT <itab_r> ASSIGNING <wa_itab_l> WHERE (lt_where).
+        LOOP AT lt_dbtabdata_r INTO lw_dbtabdata.
+          IF lv_fnameprim EQ lw_dbtabdata-fieldname.
+            APPEND INITIAL LINE TO <itab_r> ASSIGNING <wa_itab_r>.
+          ENDIF.
+
+          ASSIGN COMPONENT lw_dbtabdata-fieldname OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE lw_dbtabdata-fieldvalu TO <fieldvalue>.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+
+      LOOP AT gt_fieldcatalog INTO DATA(lw_fieldcatalog).
+        CHECK lw_fieldcatalog-fieldname NE 'SYSID'.
+
+        APPEND INITIAL LINE TO gt_sort ASSIGNING FIELD-SYMBOL(<fs_sort>).
+        <fs_sort>-name = lw_fieldcatalog-fieldname.
       ENDLOOP.
 
-      IF sy-subrc NE 0.
-        ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
-        IF <fieldvalue> IS ASSIGNED.
-          MOVE lv_rfcoptions(3) TO <fieldvalue>.
+      APPEND INITIAL LINE TO gt_sort ASSIGNING <fs_sort>.
+      <fs_sort>-name = 'SYSID'.
+
+      SORT: <itab_l> BY (gt_sort),
+            <itab_r> BY (gt_sort).
+
+      "Procura dados do Local no Remoto
+      LOOP AT <itab_l> ASSIGNING <wa_itab_l>.
+        PERFORM monta_where USING <wa_itab_l>.
+
+        LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where).
+        ENDLOOP.
+
+        IF sy-subrc NE 0.
+          ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE lv_sysid_l TO <fieldvalue>.
+          ENDIF.
+
+          APPEND <wa_itab_l> TO <itab>.
         ENDIF.
+      ENDLOOP.
 
-        APPEND <wa_itab_r> TO <itab>.
-      ENDIF.
-    ENDLOOP.
+      "Procura dados do Remoto no Local
+      LOOP AT <itab_r> ASSIGNING <wa_itab_r>.
+        PERFORM monta_where USING <wa_itab_r>.
 
-    SORT: <itab> BY (gt_sort).
+        LOOP AT <itab_r> ASSIGNING <wa_itab_l> WHERE (lt_where).
+        ENDLOOP.
 
-    CALL METHOD go_alv->set_table_for_first_display
-      EXPORTING
-        is_variant           = gs_variant
-        is_layout            = gs_layout
-        it_toolbar_excluding = gt_exclude
-      CHANGING
-        it_outtab            = <itab>
-        it_fieldcatalog      = gt_fieldcatalog.
+        IF sy-subrc NE 0.
+          ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE lv_sysid_r TO <fieldvalue>.
+          ENDIF.
 
-    CALL METHOD go_alv->set_toolbar_interactive.
+          APPEND <wa_itab_r> TO <itab>.
+        ENDIF.
+      ENDLOOP.
 
-    CALL METHOD cl_gui_control=>set_focus
-      EXPORTING
-        control = go_alv.
+      SORT: <itab> BY (gt_sort).
+
+      CALL METHOD go_alv->set_table_for_first_display
+        EXPORTING
+          is_variant           = gs_variant
+          is_layout            = gs_layout
+          it_toolbar_excluding = gt_exclude
+        CHANGING
+          it_outtab            = <itab>
+          it_fieldcatalog      = gt_fieldcatalog.
+
+      CALL METHOD go_alv->set_toolbar_interactive.
+
+      CALL METHOD cl_gui_control=>set_focus
+        EXPORTING
+          control = go_alv.
+    ELSE.
+
+      "MENSAGEM 'Report desenvolvido somente para tabela de CUSTOMIZING'.
+    ENDIF.
   ELSE.
 
     PERFORM refresh.
@@ -477,9 +489,10 @@ FORM monta_where USING p_itab TYPE any.
 
 ENDFORM.
 
-*"----------------------------------------------------------------------
-*"----------------------------------------------------------------------
-*"----------------------------------------------------------------------
+
+
+
+
 
 FUNCTION zrescuedata.
 *"----------------------------------------------------------------------
@@ -488,6 +501,7 @@ FUNCTION zrescuedata.
 *"     VALUE(DBTABNAME) TYPE  TABNAME16
 *"  CHANGING
 *"     VALUE(DBTABDATA) TYPE  ZDBTABDATA
+*"     VALUE(SYSID) TYPE  SYST_SYSID OPTIONAL
 *"----------------------------------------------------------------------
   DATA: lv_tabname  TYPE dd02l-tabname,
         lt_fieldcat TYPE lvc_t_fcat,
@@ -496,6 +510,8 @@ FUNCTION zrescuedata.
 
   FIELD-SYMBOLS: <itab>    TYPE STANDARD TABLE,
                  <wa_itab> TYPE any.
+
+  sysid = syst-sysid.
 
   MOVE dbtabname TO lv_tabname.
 
