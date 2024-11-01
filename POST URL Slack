@@ -1,0 +1,96 @@
+  "Chamada SLACK
+  lv_msg = |Por gentileza verificar o DOCNUM { docnum }!|.
+
+  CALL FUNCTION 'ZFM_SENDMSGSLACK'
+    EXPORTING
+      msg      = lv_msg
+      url      = 'https://hooks.slack.com/services/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'
+    CHANGING
+      response = lv_response.
+
+
+
+FUNCTION zfm_sendmsgslack.
+*"----------------------------------------------------------------------
+*"*"Interface local:
+*"  IMPORTING
+*"     VALUE(MSG) TYPE  STRING
+*"     VALUE(URL) TYPE  STRING
+*"  CHANGING
+*"     VALUE(RESPONSE) TYPE  STRING
+*"----------------------------------------------------------------------
+  TYPES: BEGIN OF ty_json_req,
+           text TYPE string,
+         END OF ty_json_req.
+
+  DATA: lw_text        TYPE ty_json_req,
+
+        lv_json        TYPE string,
+        lv_xjson       TYPE xstring,
+
+        lo_http_client TYPE REF TO if_http_client.
+
+  CLEAR response.
+
+  lw_text-text = msg.
+
+  "Transforma texto em formato JSON
+  /ui2/cl_json=>serialize(
+      EXPORTING
+        data   = lw_text
+      RECEIVING
+        r_json = lv_json
+    ).
+
+  REPLACE ALL OCCURRENCES OF 'TEXT' IN lv_json WITH 'text'.
+
+  CALL FUNCTION 'SCMS_STRING_TO_XSTRING'
+    EXPORTING
+      text   = lv_json
+    IMPORTING
+      buffer = lv_xjson.
+
+  CALL METHOD cl_http_client=>create_by_url
+    EXPORTING
+      url                = url
+    IMPORTING
+      client             = lo_http_client
+    EXCEPTIONS
+      argument_not_found = 1
+      plugin_not_active  = 2
+      internal_error     = 3
+      OTHERS             = 4.
+
+  IF lo_http_client IS NOT INITIAL.
+    lo_http_client->request->set_method( 'POST' ).
+    lo_http_client->request->set_header_field( name = 'Content-Type' value = 'application/json' ).
+    lo_http_client->request->set_header_field( name = 'Cache-Control' value = 'no-cache' ).
+
+    lo_http_client->request->set_data( lv_xjson ).
+
+    CALL METHOD lo_http_client->send
+      EXCEPTIONS
+        http_communication_failure = 1
+        http_invalid_state         = 2
+        http_processing_failed     = 3
+        http_invalid_timeout       = 4
+        OTHERS                     = 5.
+
+    IF sy-subrc EQ 0.
+      CALL METHOD lo_http_client->receive
+        EXCEPTIONS
+          http_communication_failure = 1
+          http_invalid_state         = 2
+          http_processing_failed     = 3
+          OTHERS                     = 5.
+
+      response = lo_http_client->response->get_cdata( ).
+    ENDIF.
+
+    CALL METHOD lo_http_client->close
+      EXCEPTIONS
+        http_invalid_state = 1
+        OTHERS             = 2.
+  ENDIF.
+
+ENDFUNCTION.
