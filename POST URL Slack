@@ -1,4 +1,4 @@
-  "Chamada SLACK
+  "Chamada SLACK (webhook URLs)
   lv_msg = |Por gentileza verificar o DOCNUM { docnum }!|.
 
   CALL FUNCTION 'ZFM_SENDMSGSLACK'
