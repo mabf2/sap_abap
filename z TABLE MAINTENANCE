@@ -7,74 +7,92 @@ REPORT ztablemaintenance.
 
 TYPES: BEGIN OF ty_select,
          line TYPE fieldname,
-       END OF ty_select.
+       END OF ty_select,
 
-DATA: gt_fieldcat     TYPE lvc_t_fcat,
-      gt_campos       TYPE TABLE OF ty_select,
-      gt_tables       TYPE TABLE OF ty_select,
-      gt_where        TYPE TABLE OF ty_select,
+       BEGIN OF ty_dd02t,
+         tabname TYPE dd02t-tabname,
+         ddtext  TYPE dd02t-ddtext,
+       END OF ty_dd02t.
 
-      gs_layout       TYPE lvc_s_layo,
-
-      gv_table_name   TYPE dd02l-tabname,
-      gv_table_prefix TYPE string,
-      gv_text_table   TYPE as4text,
-      gv_reference    TYPE REF TO data,
-      gv_cl_cont1     TYPE REF TO cl_gui_custom_container,
-      gv_cl_alv1      TYPE REF TO cl_gui_alv_grid.
-
-FIELD-SYMBOLS: <fs_table> TYPE STANDARD TABLE.
-
-CLASS lcl_event_receiver DEFINITION.
+CLASS lcl_event_handler DEFINITION.
   PUBLIC SECTION.
 
     METHODS handle_data_changed
       FOR EVENT data_changed OF cl_gui_alv_grid
       IMPORTING er_data_changed.
 
-ENDCLASS.                    "lcl_event_receiver DEFINITION
+ENDCLASS.                    "lcl_event_handler DEFINITION
 
-CLASS lcl_event_receiver IMPLEMENTATION.
+CLASS lcl_event_handler IMPLEMENTATION.
 
   METHOD handle_data_changed.
   ENDMETHOD.                    "handle_data_changed
 
-ENDCLASS.                    "lcl_event_receiver IMPLEMENTATION
+ENDCLASS.                    "lcl_event_handler IMPLEMENTATION
 
-DATA gv_event_receiver TYPE REF TO lcl_event_receiver.
+DATA: gt_dd02t     TYPE TABLE OF ty_dd02t,
+      gw_dd02t     TYPE ty_dd02t,
+      gt_fieldcat  TYPE lvc_t_fcat,
+
+      go_reference TYPE REF TO data,
+      go_splitter  TYPE REF TO cl_gui_splitter_container,
+      go_container TYPE REF TO cl_gui_container,
+      go_event     TYPE REF TO lcl_event_handler,
+      go_alv       TYPE REF TO cl_gui_alv_grid.
+
+FIELD-SYMBOLS <fs_table> TYPE STANDARD TABLE.
 
 SELECTION-SCREEN BEGIN OF BLOCK b02 WITH FRAME TITLE TEXT-001.
   PARAMETERS: p_table(40) AS LISTBOX VISIBLE LENGTH 40.
 SELECTION-SCREEN END OF BLOCK b02.
 
 INITIALIZATION.
-  gv_table_prefix = 'ZXXX_TB_P%'.
-  PERFORM f_busca_tabelas.
+  PERFORM busca_tabelas.
 
 START-OF-SELECTION.
-  PERFORM: f_monta_tabela,
-           f_exibe_tabela.
+  PERFORM monta_tabela.
 
 END-OF-SELECTION.
-
+  CALL SCREEN 1001.
 *&---------------------------------------------------------------------*
-*& Form F_BUSCA_TABELAS
+*& Form BUSCA_TABELAS
 *&---------------------------------------------------------------------*
-FORM f_busca_tabelas .
+FORM busca_tabelas .
 
-  DATA:lv_name TYPE vrm_id,
-       lt_list TYPE vrm_values.
+  DATA: lv_name  TYPE vrm_id,
 
-  SELECT * FROM dd02t
-    INTO TABLE @DATA(lt_dd02t)
-   WHERE tabname LIKE @gv_table_prefix
-   ORDER BY PRIMARY KEY.
+        lr_tname TYPE RANGE OF dd02t-tabname,
 
-  DELETE ADJACENT DUPLICATES FROM lt_dd02t COMPARING tabname.
+        lt_ret   TYPE TABLE OF zsbc_range_type,
+        lt_list  TYPE vrm_values.
+
+  CALL FUNCTION 'ZFMBC_GET_PARAMETER'
+    EXPORTING
+      i_process_id = 'TABLEMAINTENANCE'
+      i_field_name = 'TABLES'
+    TABLES
+      t_ret        = lt_ret.
+
+  CHECK lines( lt_ret ) GT 0.
+
+  lr_tname = VALUE #( FOR lw_ret IN lt_ret ( sign   = 'I'
+                                             option = 'EQ'
+                                             low    = lw_ret-low(30)
+                                             high   = space ) ).
+  SELECT dd02t~tabname, dd02t~ddtext FROM dd02t
+   INNER JOIN  dd09l ON dd09l~tabname  EQ dd02t~tabname
+                    AND dd09l~as4local EQ dd02t~as4local
+                    AND dd09l~as4vers  EQ dd02t~as4vers
+    INTO TABLE @gt_dd02t
+   WHERE dd02t~tabname IN @lr_tname
+     AND dd09l~tabart EQ 'APPL0'
+   ORDER BY dd02t~tabname, dd02t~ddtext.
+
+  DELETE ADJACENT DUPLICATES FROM gt_dd02t COMPARING tabname.
 
   lv_name = 'P_TABLE'.
 
-  LOOP AT lt_dd02t INTO DATA(lw_dd02t).
+  LOOP AT gt_dd02t INTO DATA(lw_dd02t).
     APPEND INITIAL LINE TO lt_list ASSIGNING FIELD-SYMBOL(<fs_list>).
     <fs_list>-key  = lw_dd02t-tabname.
     <fs_list>-text = lw_dd02t-ddtext.
@@ -90,9 +108,9 @@ FORM f_busca_tabelas .
 
 ENDFORM.
 *&---------------------------------------------------------------------*
-*& Form f_monta_tabela
+*& Form MONTA_TABELA
 *&---------------------------------------------------------------------*
-FORM f_monta_tabela .
+FORM monta_tabela .
 
   DATA lw_tables       TYPE ty_select.
 
@@ -101,23 +119,16 @@ FORM f_monta_tabela .
     LEAVE LIST-PROCESSING.
   ENDIF.
 
-  SELECT * FROM dd02t
-   WHERE tabname EQ @p_table
-    INTO @DATA(ls_dd02t)
-      UP TO 1 ROWS.
-  ENDSELECT.
-
+  READ TABLE gt_dd02t INTO gw_dd02t WITH KEY tabname = p_table
+                                      BINARY SEARCH.
   IF sy-subrc NE 0.
     MESSAGE i368(00) WITH TEXT-004 DISPLAY LIKE 'E'.
     LEAVE LIST-PROCESSING.
   ENDIF.
 
-  MOVE: ls_dd02t-tabname TO gv_table_name,
-        ls_dd02t-ddtext  TO gv_text_table.
-
   CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
     EXPORTING
-      i_structure_name = gv_table_name
+      i_structure_name = gw_dd02t-tabname
     CHANGING
       ct_fieldcat      = gt_fieldcat.
 
@@ -125,27 +136,22 @@ FORM f_monta_tabela .
     EXPORTING
       it_fieldcatalog = gt_fieldcat
     IMPORTING
-      ep_table        = gv_reference.
+      ep_table        = go_reference.
 
-  ASSIGN gv_reference->* TO <fs_table>.
+  ASSIGN go_reference->* TO <fs_table>.
 
-  LOOP AT gt_fieldcat INTO DATA(gs_fieldcat).
-    APPEND INITIAL LINE TO gt_campos ASSIGNING FIELD-SYMBOL(<fs_campos>).
-    <fs_campos>-line = gs_fieldcat-fieldname.
-  ENDLOOP.
+  lw_tables-line = gw_dd02t-tabname.
 
-  lw_tables-line = gv_table_name.
-
-  SELECT (gt_campos) FROM (lw_tables-line)
-   WHERE (gt_where)
-    INTO TABLE @<fs_table>.
+  SELECT *
+    INTO TABLE @<fs_table>
+    FROM (lw_tables-line)
+   ORDER BY PRIMARY KEY.
 
 ENDFORM.
 *&---------------------------------------------------------------------*
-*& Form F_EXIBE_TABELA
+*& Form EXIBE_TABELA
 *&---------------------------------------------------------------------*
-
-FORM f_exibe_tabela .
+FORM exibe_tabela .
 
   CALL SCREEN 1001.
 
@@ -158,7 +164,7 @@ MODULE status_1001 OUTPUT.
   SET PF-STATUS '1001'. "SAVE/BACK/EXIT/CANC
   SET TITLEBAR '1001'.
 
-  PERFORM f_monta_tela_alv.
+  PERFORM monta_tela_alv.
 
 ENDMODULE.
 *&---------------------------------------------------------------------*
@@ -170,7 +176,7 @@ MODULE user_command_1001 INPUT.
 
     WHEN 'SAVE'.
       CLEAR p_table.
-      PERFORM f_save_table.
+      PERFORM save_table.
 
     WHEN 'BACK' OR 'CANC' OR 'EXIT'.
       CLEAR p_table.
@@ -181,69 +187,82 @@ MODULE user_command_1001 INPUT.
 
 ENDMODULE.
 *&---------------------------------------------------------------------*
-*& Form F_MONTA_TELA_ALV
+*& Form MONTA_TELA_ALV
 *&---------------------------------------------------------------------*
-FORM f_monta_tela_alv .
+FORM monta_tela_alv .
 
-* Limpa Container
-  IF gv_cl_cont1 IS BOUND.
-    CALL METHOD gv_cl_cont1->free.
-    CLEAR gv_cl_cont1.
+  DATA lw_layout     TYPE lvc_s_layo.
+
+  lw_layout-grid_title = gw_dd02t-ddtext.
+  lw_layout-cwidth_opt = 'X'.
+  lw_layout-edit       = 'X'.
+
+  IF go_splitter IS NOT BOUND.
+    CREATE OBJECT go_splitter
+      EXPORTING
+        parent  = cl_gui_container=>default_screen
+        rows    = 1
+        columns = 1.
+
+    CALL METHOD go_splitter->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_container.
   ENDIF.
 
-* Limpa container ALV
-  IF gv_cl_alv1 IS NOT INITIAL.
-    CLEAR gv_cl_alv1.
-  ENDIF.
-
-* Compoe a tela do retorno da tabela
-  IF gv_cl_cont1 IS NOT BOUND.
-    CREATE OBJECT gv_cl_cont1
+  IF go_alv IS NOT BOUND.
+    CREATE OBJECT go_alv
       EXPORTING
-        container_name = 'CONT1'.
+        i_parent = go_container.
 
-    CREATE OBJECT gv_cl_alv1
-      EXPORTING
-        i_parent = gv_cl_cont1.
+    CREATE OBJECT go_event.
+    SET HANDLER go_event->handle_data_changed FOR go_alv.
 
-    CREATE OBJECT gv_event_receiver.
-    SET HANDLER gv_event_receiver->handle_data_changed FOR gv_cl_alv1.
-
-    CALL METHOD gv_cl_alv1->register_edit_event
+    CALL METHOD go_alv->register_edit_event
       EXPORTING
         i_event_id = cl_gui_alv_grid=>mc_evt_modified.
 
-    CLEAR: gs_layout.
-
-    gs_layout-grid_title = gv_text_table.
-    gs_layout-cwidth_opt = 'X'.
-    gs_layout-edit       = 'X'.
-
-    CALL METHOD gv_cl_alv1->set_table_for_first_display
+    CALL METHOD go_alv->set_table_for_first_display
       EXPORTING
-        i_structure_name = gv_table_name
-        is_layout        = gs_layout
+        i_structure_name = gw_dd02t-tabname
+        is_layout        = lw_layout
       CHANGING
         it_fieldcatalog  = gt_fieldcat
         it_outtab        = <fs_table>.
+
+    CALL METHOD go_alv->set_toolbar_interactive.
+
+    CALL METHOD cl_gui_control=>set_focus
+      EXPORTING
+        control = go_alv.
+  ELSE.
+
+    go_alv->refresh_table_display(
+          EXPORTING
+            i_soft_refresh = abap_true
+        ).
   ENDIF.
 
 ENDFORM.
 *&---------------------------------------------------------------------*
-*& Form F_SAVE_TABLE
+*& Form SAVE_TABLE
 *&---------------------------------------------------------------------*
-FORM f_save_table .
+FORM save_table .
 
   IF <fs_table> IS ASSIGNED.
-    DELETE FROM (gv_table_name) WHERE mandt NE space.
-    MODIFY (gv_table_name) FROM TABLE <fs_table>[].
+    DELETE FROM (gw_dd02t-tabname) WHERE mandt NE space.
+    MODIFY (gw_dd02t-tabname) FROM TABLE <fs_table>[].
 
     IF sy-subrc EQ 0.
-      COMMIT WORK.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
       MESSAGE i368(00) WITH TEXT-002.
     ELSE.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
       MESSAGE e368(00) WITH TEXT-003.
-      ROLLBACK WORK.
     ENDIF.
   ENDIF.
 
