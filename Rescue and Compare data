@@ -1,11 +1,6 @@
 *&---------------------------------------------------------------------*
 *& Report ZCOMPAREDATA
 *&---------------------------------------------------------------------*
-*&  j_1btxdef, j_1btxip1, j_1btxip2, j_1btxip3, j_1btxic1, j_1btxic2,
-*&  j_1btxic3, j_1btxci1, j_1btxis1, j_1btxis3, j_1btxst1, j_1btxst2,
-*&  j_1btxst3, j_1btxsdc, j_1btregx, j_1btxiss, j_1btxpis, j_1btxcof,
-*&  j_1btxwith.
-*&---------------------------------------------------------------------*
 REPORT zcomparedata.
 
 TABLES dd02d.
@@ -53,7 +48,8 @@ MODULE status_0100 OUTPUT.
           lv_sysid_l     TYPE syst-sysid,
           lv_sysid_r     TYPE syst-sysid,
 
-          lt_where       TYPE TABLE OF ty_select,
+          lt_where_e     TYPE TABLE OF ty_select,
+          lt_where_k     TYPE TABLE OF ty_select,
           lt_dbtabdata_l TYPE zdbtabdata,
           lt_dbtabdata_r TYPE zdbtabdata,
           lt_ret2        TYPE TABLE OF zsbc_range_type_2.
@@ -209,11 +205,33 @@ MODULE status_0100 OUTPUT.
       "Procura dados do Local no Remoto
       LOOP AT <itab_l> ASSIGNING <wa_itab_l>.
         PERFORM monta_where USING <wa_itab_l>.
-
-        LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where).
+        LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where_e).
         ENDLOOP.
 
-        IF sy-subrc NE 0.
+        IF sy-subrc EQ 0.
+          "Chave e demais campos iguais.
+          ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE icon_green_light TO <fieldvalue>.
+          ENDIF.
+        ELSE.
+          LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where_k).
+          ENDLOOP.
+
+          IF sy-subrc EQ 0.
+            "Chave igual, demais campos diferentes
+            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
+            IF <fieldvalue> IS ASSIGNED.
+              MOVE icon_yellow_light TO <fieldvalue>.
+            ENDIF.
+          ELSE.
+            "Chave e demais campos desiguais. (Chave inexistente)
+            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
+            IF <fieldvalue> IS ASSIGNED.
+              MOVE icon_red_light TO <fieldvalue>.
+            ENDIF.
+          ENDIF.
+
           ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
           IF <fieldvalue> IS ASSIGNED.
             MOVE lv_sysid_l TO <fieldvalue>.
@@ -226,11 +244,33 @@ MODULE status_0100 OUTPUT.
       "Procura dados do Remoto no Local
       LOOP AT <itab_r> ASSIGNING <wa_itab_r>.
         PERFORM monta_where USING <wa_itab_r>.
-
-        LOOP AT <itab_r> ASSIGNING <wa_itab_l> WHERE (lt_where).
+        LOOP AT <itab_l> ASSIGNING <wa_itab_l> WHERE (lt_where_e).
         ENDLOOP.
 
-        IF sy-subrc NE 0.
+        IF sy-subrc EQ 0.
+          "Chave e demais campos iguais.
+          ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+          IF <fieldvalue> IS ASSIGNED.
+            MOVE icon_green_light TO <fieldvalue>.
+          ENDIF.
+        ELSE.
+          LOOP AT <itab_l> ASSIGNING <wa_itab_l> WHERE (lt_where_k).
+          ENDLOOP.
+
+          IF sy-subrc EQ 0.
+            "Chave igual, demais campos diferentes
+            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+            IF <fieldvalue> IS ASSIGNED.
+              MOVE icon_yellow_light TO <fieldvalue>.
+            ENDIF.
+          ELSE.
+            "Chave e demais campos desiguais. (Chave inexistente)
+            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+            IF <fieldvalue> IS ASSIGNED.
+              MOVE icon_red_light TO <fieldvalue>.
+            ENDIF.
+          ENDIF.
+
           ASSIGN COMPONENT 'SYSID' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
           IF <fieldvalue> IS ASSIGNED.
             MOVE lv_sysid_r TO <fieldvalue>.
@@ -319,7 +359,7 @@ FORM create_fc.
   LOOP AT gt_fieldcatalog ASSIGNING FIELD-SYMBOL(<fs_fieldcatalog>).
     DATA(lv_idx) = sy-tabix.
 
-    ADD 1 TO <fs_fieldcatalog>-col_pos.
+    ADD 2 TO <fs_fieldcatalog>-col_pos.
     <fs_fieldcatalog>-reptext   = <fs_fieldcatalog>-scrtext_l.
     <fs_fieldcatalog>-txt_field = <fs_fieldcatalog>-scrtext_l(30).
 
@@ -352,6 +392,17 @@ FORM create_fc.
 
   APPEND INITIAL LINE TO gt_fieldcatalog ASSIGNING <fs_fieldcatalog>.
   <fs_fieldcatalog>-col_pos	  = 1.
+  <fs_fieldcatalog>-fieldname = 'STATUS'.
+  <fs_fieldcatalog>-outputlen = 5.
+  <fs_fieldcatalog>-datatype  = 'CHAR'.
+  <fs_fieldcatalog>-inttype	  = 'C'.
+  <fs_fieldcatalog>-intlen    = '000005'.
+  <fs_fieldcatalog>-txt_field = <fs_fieldcatalog>-reptext =
+  <fs_fieldcatalog>-scrtext_l = <fs_fieldcatalog>-scrtext_m =
+  <fs_fieldcatalog>-scrtext_s = 'STATUS'.
+
+  APPEND INITIAL LINE TO gt_fieldcatalog ASSIGNING <fs_fieldcatalog>.
+  <fs_fieldcatalog>-col_pos	  = 2.
   <fs_fieldcatalog>-fieldname	= 'SYSID'.
   <fs_fieldcatalog>-outputlen = 8.
   <fs_fieldcatalog>-datatype  = 'CHAR'.
@@ -472,19 +523,37 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM monta_where USING p_itab TYPE any.
 
-  REFRESH lt_where[].
-  LOOP AT gt_fieldcatalog INTO DATA(lw_fieldcatalog).
-    APPEND INITIAL LINE TO lt_where ASSIGNING FIELD-SYMBOL(<fs_where>).
+  REFRESH: lt_where_e[],
+           lt_where_k[].
 
-    ASSIGN COMPONENT lw_fieldcatalog-fieldname OF STRUCTURE p_itab "<fs_where>
-                                               TO FIELD-SYMBOL(<fieldvalue>).
-    IF <fieldvalue> IS ASSIGNED.
-      IF lines( lt_where ) EQ 1.
-        <fs_where>-line = |{ lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
-      ELSE.
-        <fs_where>-line = |AND { lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
-      ENDIF.
-    ENDIF.
+  LOOP AT gt_fieldcatalog INTO DATA(lw_fieldcatalog).
+    CASE lw_fieldcatalog-fieldname.
+      WHEN 'MANDT' OR 'STATUS' OR 'SYSID'.
+        "Do nothing
+      WHEN OTHERS.
+        APPEND INITIAL LINE TO lt_where_e ASSIGNING FIELD-SYMBOL(<fs_where_e>).
+        IF lw_fieldcatalog-key EQ abap_true.
+          APPEND INITIAL LINE TO lt_where_k ASSIGNING FIELD-SYMBOL(<fs_where_k>).
+        ENDIF.
+
+        ASSIGN COMPONENT lw_fieldcatalog-fieldname OF STRUCTURE p_itab
+                                                   TO FIELD-SYMBOL(<fieldvalue>).
+        IF <fieldvalue> IS ASSIGNED.
+          IF lines( lt_where_e ) EQ 1.
+            <fs_where_e>-line = |{ lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
+          ELSE.
+            <fs_where_e>-line = |AND { lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
+          ENDIF.
+
+          IF lw_fieldcatalog-key EQ abap_true.
+            IF lines( lt_where_k ) EQ 1.
+              <fs_where_k>-line = |{ lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
+            ELSE.
+              <fs_where_k>-line = |AND { lw_fieldcatalog-fieldname } = '{ <fieldvalue> }'|.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+    ENDCASE.
   ENDLOOP.
 
 ENDFORM.
