@@ -2,3 +2,14 @@ EXPORT ptst = ms_tax_control-icms_comp_fcp TO MEMORY ID 'CALCULATE_ICMS_COMP_DIF
 
 DATA lv_icms_comp_fcp      TYPE xfeld,
 IMPORT ptst = lv_icms_comp_fcp FROM MEMORY ID 'CALCULATE_ICMS_COMP_DIFAL'.
+
+
+DATA lw_rv64a920   TYPE ty_rv64a920.
+IMPORT lw_rv64a920 TO lw_rv64a920 FROM MEMORY ID 'ZINC_RV64A920'.
+
+lw_rv64a920-knumv = w_xkomv-knumv.
+lw_rv64a920-kposn = w_xkomv-kposn.
+lw_rv64a920-kwert = 0.
+lw_rv64a920-xkwert = 0.
+lw_rv64a920-kwert_bx12 = 0.
+EXPORT lw_rv64a920 TO MEMORY ID 'ZINC_RV64A920'.
