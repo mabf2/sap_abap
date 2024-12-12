@@ -1,5 +1,7 @@
 *&---------------------------------------------------------------------*
-*& Report ZCOMPAREDATA
+*& Report ZCOMPAREDATA (Compare data from another SSID)
+*& Structure ZCELLSCOL (Dynamic table CELLSCOL)
+*&   Componente CELLSCOL TYPE LVC_T_SCOL
 *&---------------------------------------------------------------------*
 REPORT zcomparedata.
 
@@ -14,8 +16,8 @@ DATA: reference       TYPE REF TO data,
       go_container    TYPE REF TO cl_gui_container,
       go_alv          TYPE REF TO cl_gui_alv_grid,
 
-      gs_variant      TYPE disvariant,
-      gs_layout       TYPE lvc_s_layo.
+      gw_variant      TYPE disvariant,
+      gw_layout       TYPE lvc_s_layo.
 
 FIELD-SYMBOLS: <itab>      TYPE STANDARD TABLE,
                <itab_l>    TYPE STANDARD TABLE,
@@ -23,7 +25,8 @@ FIELD-SYMBOLS: <itab>      TYPE STANDARD TABLE,
                <wa_itab_l> TYPE any,
                <wa_itab_r> TYPE any.
 
-PARAMETERS ptabname LIKE dd02d-dbtabname OBLIGATORY.
+PARAMETERS: ptabname LIKE dd02d-dbtabname OBLIGATORY,
+            pmantem  AS CHECKBOX.
 
 START-OF-SELECTION.
   CALL SCREEN 0100.
@@ -95,15 +98,15 @@ MODULE status_0100 OUTPUT.
           dbtabdata = lt_dbtabdata_r
           sysid     = lv_sysid_r.
 
-      gs_variant-report     = sy-repid.
-      gs_variant-username   = sy-uname.
+      gw_variant-report     = sy-repid.
+      gw_variant-username   = sy-uname.
 
-      gs_layout-zebra      = abap_true.
-      gs_layout-cwidth_opt = abap_true.
-      gs_layout-sel_mode   = 'A'.
+      gw_layout-ctab_fname = 'CELLSCOL'.
+      gw_layout-zebra      = abap_true.
+      gw_layout-cwidth_opt = abap_true.
+      gw_layout-sel_mode   = 'A'.
 
-      APPEND: cl_gui_alv_grid=>mc_fc_filter            TO gt_exclude,
-              cl_gui_alv_grid=>mc_fc_sum               TO gt_exclude,
+      APPEND: cl_gui_alv_grid=>mc_fc_sum               TO gt_exclude,
               cl_gui_alv_grid=>mc_mb_sum               TO gt_exclude,
               cl_gui_alv_grid=>mc_mb_variant           TO gt_exclude,
               cl_gui_alv_grid=>mc_fc_help              TO gt_exclude,
@@ -210,9 +213,13 @@ MODULE status_0100 OUTPUT.
 
         IF sy-subrc EQ 0.
           "Chave e demais campos iguais.
-          ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
-          IF <fieldvalue> IS ASSIGNED.
-            MOVE icon_green_light TO <fieldvalue>.
+          IF pmantem EQ abap_true.
+            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_l> TO <fieldvalue>.
+            IF <fieldvalue> IS ASSIGNED.
+              MOVE icon_green_light TO <fieldvalue>.
+            ENDIF.
+
+            APPEND <wa_itab_l> TO <itab>.
           ENDIF.
         ELSE.
           LOOP AT <itab_r> ASSIGNING <wa_itab_r> WHERE (lt_where_k).
@@ -249,10 +256,14 @@ MODULE status_0100 OUTPUT.
 
         IF sy-subrc EQ 0.
           "Chave e demais campos iguais.
-          ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
-          IF <fieldvalue> IS ASSIGNED.
-            MOVE icon_green_light TO <fieldvalue>.
-          ENDIF.
+*          IF pmantem EQ abap_true.
+*            ASSIGN COMPONENT 'STATUS' OF STRUCTURE <wa_itab_r> TO <fieldvalue>.
+*            IF <fieldvalue> IS ASSIGNED.
+*              MOVE icon_green_light TO <fieldvalue>.
+*            ENDIF.
+*
+*            APPEND <wa_itab_l> TO <itab>.
+*          ENDIF.
         ELSE.
           LOOP AT <itab_l> ASSIGNING <wa_itab_l> WHERE (lt_where_k).
           ENDLOOP.
@@ -282,10 +293,12 @@ MODULE status_0100 OUTPUT.
 
       SORT: <itab> BY (gt_sort).
 
+      DELETE gt_fieldcatalog WHERE fieldname EQ 'CELLSCOL'.
+
       CALL METHOD go_alv->set_table_for_first_display
         EXPORTING
-          is_variant           = gs_variant
-          is_layout            = gs_layout
+          is_variant           = gw_variant
+          is_layout            = gw_layout
           it_toolbar_excluding = gt_exclude
         CHANGING
           it_outtab            = <itab>
@@ -412,6 +425,12 @@ FORM create_fc.
   <fs_fieldcatalog>-scrtext_l = <fs_fieldcatalog>-scrtext_m =
   <fs_fieldcatalog>-scrtext_s = 'SYSID'.
 
+  APPEND INITIAL LINE TO gt_fieldcatalog ASSIGNING <fs_fieldcatalog>.
+  <fs_fieldcatalog>-col_pos    = lines( gt_fieldcatalog ).
+  <fs_fieldcatalog>-fieldname  = 'CELLSCOL'.
+  <fs_fieldcatalog>-ref_field = 'CELLSCOL'.
+  <fs_fieldcatalog>-ref_table = 'ZCELLSCOL'.
+
   SORT gt_fieldcatalog BY row_pos col_pos.
 
 ENDFORM.
@@ -528,7 +547,7 @@ FORM monta_where USING p_itab TYPE any.
 
   LOOP AT gt_fieldcatalog INTO DATA(lw_fieldcatalog).
     CASE lw_fieldcatalog-fieldname.
-      WHEN 'MANDT' OR 'STATUS' OR 'SYSID'.
+      WHEN 'MANDT' OR 'STATUS' OR 'SYSID' OR 'CELLSCOL'.
         "Do nothing
       WHEN OTHERS.
         APPEND INITIAL LINE TO lt_where_e ASSIGNING FIELD-SYMBOL(<fs_where_e>).
@@ -557,7 +576,6 @@ FORM monta_where USING p_itab TYPE any.
   ENDLOOP.
 
 ENDFORM.
-
 
 
 
