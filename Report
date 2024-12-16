@@ -1,0 +1,67 @@
+*&---------------------------------------------------------------------*
+*& Report Z
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT z_ MESSAGE-ID zabap LINE-COUNT 65(8) LINE-SIZE 132.
+
+INCLUDE: z_top,
+         z_scr,
+         z_fo1.
+
+*&---------------------------------------------------------------------*
+* INITIALIZATION
+*&---------------------------------------------------------------------*
+INITIALIZATION.
+  PERFORM initialization.
+
+*&---------------------------------------------------------------------*
+*&  START-OF-SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM: validate_scr,
+           select_data,
+           process_data.
+
+*&---------------------------------------------------------------------*
+*&  END-OF-SELECTION
+*&---------------------------------------------------------------------*
+END-OF-SELECTION.
+  CALL SCREEN '9000'.
+
+*&---------------------------------------------------------------------*
+*& Include          Z_TOP
+*&---------------------------------------------------------------------*
+TABLES: j_1bnfe_active,
+
+*&---------------------------------------------------------------------*
+*& Include          Z_SCR
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1.
+  SELECT-OPTIONS: s_bukrs  FOR j_1bnfe_active-bukrs,
+                  s_chv    FOR ztmm_cab_cte-chv_cte,
+                  s_dtdoc  FOR ztmm_cab_cte-dt_doc.
+SELECTION-SCREEN END OF BLOCK b1.
+FORM initialization .
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Include          Z_FO1
+*&---------------------------------------------------------------------*
+FORM validate_scr .
+
+  IF s_chv   IS INITIAL AND
+     s_dtdoc IS INITIAL.
+    MESSAGE TEXT-e01 TYPE 'S' DISPLAY LIKE 'E'.
+    LEAVE LIST-PROCESSING.
+
+  ELSE.
+    IF s_dtdoc IS NOT INITIAL AND
+       s_bukrs IS INITIAL.
+      MESSAGE TEXT-e02 TYPE 'S' DISPLAY LIKE 'E'.
+      LEAVE LIST-PROCESSING.
+
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
