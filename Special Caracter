@@ -1,4 +1,6 @@
-REPLACE ALL OCCURRENCES OF: cl_abap_char_utilities=>cr_lf          IN lv_xml_field WITH ' ',
+REPLACE ALL OCCURRENCES OF: '´'                                    IN lv_xml_field WITH ' ', "Crase
+                            ''''                                   IN lv_xml_field WITH ' ', "Aspas simples
+                            cl_abap_char_utilities=>cr_lf          IN lv_xml_field WITH ' ',
                             cl_abap_char_utilities=>newline        IN lv_xml_field WITH ' ',
                             cl_abap_char_utilities=>horizontal_tab IN lv_xml_field WITH ' ',
                             cl_abap_char_utilities=>vertical_tab   IN lv_xml_field WITH ' '.
