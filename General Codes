@@ -6,6 +6,12 @@ bdcdata_tab = VALUE #(
    ( fnam = 'SEOCLASS-CLSNAME' fval = class_name )
    ( fnam = 'BDC_OKCODE'       fval = '=WB_DISPLAY' ) ).
 *
+APPEND VALUE #( type        = 'E'
+                message_v1  = lwa_mesg-msgv1
+                message_v2  = lwa_mesg-msgv2
+                message_v3  = lwa_mesg-msgv3
+                message_v4  = lwa_mesg-msgv4 ) TO lt_return.
+*
 DATA(opt) = VALUE ctu_params( dismode = 'E'
                               defsize = 'X' ).
 *
