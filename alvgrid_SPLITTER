@@ -1,0 +1,647 @@
+*&---------------------------------------------------------------------*
+*& PoolMóds.         SAPMZ_APROVFLUXOCTE
+*& ZTFI154 Aprovação faturas - CT-e
+*&---------------------------------------------------------------------*
+*& Tela 9000 vazia
+*& Status GUI "REFRESH", "LIBERARFA"
+*&---------------------------------------------------------------------*
+INCLUDE: mz_aprovfluxocte_top, " global Data
+         mz_aprovfluxocte_cls,
+         mz_aprovfluxocte_o01, " PBO-Modules
+         mz_aprovfluxocte_i01, " PAI-Modules
+         mz_aprovfluxocte_f01. " FORM-Routines
+
+*&---------------------------------------------------------------------*
+*& Include MZ_APROVFLUXOCTETOP
+*& PoolMóds.        SAPMZ_APROVFLUXOCTE
+*&---------------------------------------------------------------------*
+PROGRAM sapmz_aprovfluxocte MESSAGE-ID zcte.
+
+CLASS lcl_event_handler DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+      handle_hotspot_click
+        FOR EVENT hotspot_click OF cl_gui_alv_grid
+        IMPORTING e_column_id
+                  es_row_no.
+ENDCLASS.                    "lcl_event_handler DEFINITION
+
+CLASS lcl_gui_alv_grid_adv DEFINITION INHERITING FROM cl_gui_alv_grid.
+  PUBLIC SECTION.
+    CLASS-METHODS optimize_columns
+      IMPORTING io_alv_grid TYPE REF TO cl_gui_alv_grid.
+ENDCLASS.
+
+TYPES:
+  BEGIN OF ty_fatura,
+    nro_fat_transp TYPE ztb_ctetmp-nro_fat_transp,
+  END OF ty_fatura,
+
+  BEGIN OF ty_faturad,
+    nro_fat_transp TYPE ztb_ctetmp-nro_fat_transp,
+    cte            TYPE ztb_ctetmp-cte,
+    nct            TYPE ztb_ctexmldoc-nct,
+    serie          TYPE ztb_ctexmldoc-serie,
+    demi           TYPE ztb_ctexmldoc-demi,
+    tprest         TYPE ztb_ctexmldoc-tprest,
+    cst            TYPE ztb_ctexmlicm-cst,
+    bc             TYPE ztb_ctexmlicm-bc,
+    picms          TYPE ztb_ctexmlicm-picms,
+    vicms          TYPE ztb_ctexmlicm-vicms,
+    nome_e         TYPE ztb_ctexmlpar-nome,
+    cnpj_e         TYPE ztb_ctexmlpar-cnpj,
+    nome_t         TYPE ztb_ctexmlpar-nome,
+    cnpj_t         TYPE ztb_ctexmlpar-cnpj,
+    cmunini        TYPE ztb_ctexmldoc-cmunini,
+    cmunfim        TYPE ztb_ctexmldoc-cmunfim,
+  END OF ty_faturad,
+
+  BEGIN OF ty_faturah,
+    nro_fat_transp TYPE ztb_ctetmp-nro_fat_transp,
+    saknr          TYPE ztb_ctetmp-saknr,
+    kostl          TYPE ztb_ctetmp-kostl,
+    name1          TYPE lfa1-name1,
+    tprestt        TYPE ztb_ctexmldoc-tprest,
+    qtdkeys        TYPE int8,
+  END OF ty_faturah.
+
+DATA: gt_fatura         TYPE TABLE OF ty_fatura,
+      gt_faturad        TYPE TABLE OF ty_faturad,
+      gt_faturah        TYPE TABLE OF ty_faturah,
+
+      go_event_handler  TYPE REF TO lcl_event_handler,
+      go_splitter1      TYPE REF TO cl_gui_splitter_container,
+      go_splitter2      TYPE REF TO cl_gui_splitter_container,
+      go_cc1            TYPE REF TO cl_gui_container,
+      go_cc2            TYPE REF TO cl_gui_container,
+      go_cc21           TYPE REF TO cl_gui_container,
+      go_cc22           TYPE REF TO cl_gui_container,
+      go_grid1          TYPE REF TO cl_gui_alv_grid,
+      go_grid21         TYPE REF TO cl_gui_alv_grid,
+      go_grid22         TYPE REF TO cl_gui_alv_grid.
+
+*&---------------------------------------------------------------------*
+*& Include          MZ_APROVFLUXOCTECLS
+*&---------------------------------------------------------------------*
+CLASS lcl_event_handler IMPLEMENTATION.
+
+  METHOD handle_hotspot_click.
+
+    DATA e_ucomm TYPE sy-ucomm VALUE 'CHANGE'.
+
+    CASE e_column_id-fieldname.
+      WHEN 'NRO_FAT_TRANSP'.
+        PERFORM read_fatura USING es_row_no-row_id.
+
+        CALL METHOD cl_gui_cfw=>set_new_ok_code
+          EXPORTING
+            new_code = e_ucomm.
+    ENDCASE.
+
+  ENDMETHOD.                    "handle_hotspot_click
+
+ENDCLASS.                    "lcl_event_handler IMPLEMENTATION
+
+CLASS lcl_gui_alv_grid_adv IMPLEMENTATION.
+  METHOD optimize_columns.
+    io_alv_grid->optimize_all_cols( ).
+  ENDMETHOD.
+ENDCLASS.
+
+*&---------------------------------------------------------------------*
+*&  Include           MZ_APROVFLUXOCTEO01
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Module STATUS_9000 OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE status_9000 OUTPUT.
+
+  SET PF-STATUS '9000'.
+  SET TITLEBAR '9000'.
+
+  PERFORM: carrega_fatura,
+           alvgrid_container,
+           alvgrid_fatura.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&  Include           MZ_APROVFLUXOCTEI01
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_9000  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_9000 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'BACK'.
+      SET SCREEN 0.
+      LEAVE LIST-PROCESSING.
+
+    WHEN 'REFRESH'.
+      PERFORM refresh.
+
+    WHEN 'CHANGE'.
+      PERFORM change_fatura.
+
+    WHEN 'LIBERARFA'.
+      PERFORM libera_fatura.
+
+  ENDCASE.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&  Include           MZ_APROVFLUXOCTEF01
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form carrega_fatura
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM carrega_fatura .
+
+  DATA lr_fatura TYPE RANGE OF ztb_ctetmp-nro_fat_transp.
+
+  IF lines( gt_faturad ) EQ 0.
+    SELECT t~nro_fat_transp, t~cte, d~nct, d~serie, d~demi, d~tprest,
+      i~cst, i~bc, i~picms, i~vicms, p~nome AS nome_e, p~cnpj AS cnpj_e,
+      p1~nome AS nome_t, p1~cnpj AS cnpj_t, d~cmunini, d~cmunfim FROM ztb_ctetmp AS t
+      JOIN ztb_ctexmldoc AS d  ON t~cte    EQ d~cte
+      JOIN ztb_ctebap    AS b  ON t~cte    EQ b~cte
+      JOIN ztb_ctexmlpar AS p  ON t~cte    EQ p~cte   AND
+                                  p~tppart EQ 'EMI'
+      JOIN ztb_ctexmlpar AS p1 ON t~cte    EQ p1~cte  AND
+                                  d~tppart EQ p1~tppart
+      JOIN ztb_ctexmlicm AS i  ON t~cte    EQ i~cte
+      JOIN lfa1          AS l  ON t~lifnr  EQ l~lifnr AND
+                                  l~ktokk  EQ 'ZJUR'
+     WHERE t~nro_fat_transp IS NOT INITIAL
+       AND b~direct EQ '1'
+       AND b~status EQ 'L'
+     ORDER BY t~nro_fat_transp, t~cte
+      INTO TABLE @gt_faturad.
+
+    gt_fatura = VALUE #( FOR lw_ IN gt_faturad ( nro_fat_transp = lw_-nro_fat_transp ) ).
+    SORT gt_fatura.
+    DELETE ADJACENT DUPLICATES FROM gt_fatura COMPARING ALL FIELDS.
+
+    lr_fatura = VALUE #( FOR lw_f IN gt_fatura ( sign   = 'I'
+                                                 option = 'EQ'
+                                                 low    = lw_f-nro_fat_transp
+                                                 high   = '' ) ).
+    IF lines( lr_fatura ) GT 0.
+      SELECT t~nro_fat_transp, t~saknr, t~kostl, l~name1,
+         SUM( d~tprest ) AS tprestt, COUNT(*) AS qtdkeys
+        FROM ztb_ctetmp AS t
+        JOIN ztb_ctexmldoc AS d  ON t~cte EQ d~cte
+        JOIN ztb_ctexmlpar AS p  ON t~cte    EQ p~cte AND
+                                    p~tppart EQ 'EMI'
+        JOIN ztb_ctexmlicm AS i  ON t~cte EQ i~cte
+        JOIN lfa1          AS l  ON t~lifnr EQ l~lifnr AND
+                                    l~ktokk EQ 'ZJUR'
+       WHERE t~nro_fat_transp IN @lr_fatura
+       GROUP BY t~nro_fat_transp, t~saknr, t~kostl, l~name1
+       ORDER BY t~nro_fat_transp
+        INTO TABLE @gt_faturah.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form alvgrid_container
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM alvgrid_container .
+
+  IF go_splitter1 IS NOT BOUND.
+    "Splitter (1 linha, 2 colunas)
+    CREATE OBJECT go_splitter1
+      EXPORTING
+        parent  = cl_gui_container=>default_screen
+        rows    = 1
+        columns = 2.
+
+    "Container Esquerdo
+    CALL METHOD go_splitter1->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_cc1.
+
+    "Largura
+    go_splitter1->set_column_width(
+      EXPORTING
+        id     = 1
+        width  = 10
+      EXCEPTIONS
+        OTHERS = 0
+     ).
+  ENDIF.
+
+  IF go_splitter2 IS NOT BOUND.
+    "Container Direito
+    CALL METHOD go_splitter1->get_container
+      EXPORTING
+        row       = 1
+        column    = 2
+      RECEIVING
+        container = go_cc2.
+
+    "Splitter (2 linhas, 1 coluna)
+    CREATE OBJECT go_splitter2
+      EXPORTING
+        parent  = go_cc2
+        rows    = 2
+        columns = 1.
+
+    "Container Superior Direito
+    CALL METHOD go_splitter2->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_cc21.
+
+    "Altura
+    go_splitter2->set_row_height(
+      EXPORTING
+        id     = 1
+        height = 20
+      EXCEPTIONS
+        OTHERS = 0
+     ).
+
+    "Container Inferior Direito
+    CALL METHOD go_splitter2->get_container
+      EXPORTING
+        row       = 2
+        column    = 1
+      RECEIVING
+        container = go_cc22.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form alvgrid_fatura
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM alvgrid_fatura .
+
+  DATA: lw_layout   TYPE lvc_s_layo,
+        lt_exclude  TYPE ui_functions,
+        lt_fieldcat TYPE lvc_t_fcat,
+        lt_filter   TYPE lvc_t_filt.
+
+  APPEND: cl_gui_alv_grid=>mc_fc_filter     TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_sum        TO lt_exclude,
+          cl_gui_alv_grid=>mc_mb_sum        TO lt_exclude,
+          cl_gui_alv_grid=>mc_mb_variant    TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_help       TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_loc_undo   TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_graph      TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_print      TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_print_prev TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_info       TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_detail     TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_to_office  TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_views      TO lt_exclude,
+          cl_gui_alv_grid=>mc_fc_pc_file    TO lt_exclude,
+          cl_gui_alv_grid=>mc_mb_export     TO lt_exclude.
+
+  lw_layout-zebra      = abap_true.
+  lw_layout-cwidth_opt = abap_true.
+  lw_layout-sel_mode   = 'A'.
+
+  "FATURA
+  IF go_grid1 IS NOT BOUND.
+    "Grid Container Esquerdo
+    CREATE OBJECT go_grid1
+      EXPORTING
+        i_parent          = go_cc1
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    CREATE OBJECT go_event_handler.
+    SET HANDLER go_event_handler->handle_hotspot_click FOR go_grid1.
+
+    PERFORM create_fc TABLES lt_fieldcat.
+    CALL METHOD go_grid1->set_table_for_first_display
+      EXPORTING
+        is_layout            = lw_layout
+        it_toolbar_excluding = lt_exclude
+      CHANGING
+        it_outtab            = gt_fatura
+        it_fieldcatalog      = lt_fieldcat.
+  ENDIF.
+
+  "FATURA HEADER
+  IF go_grid21 IS NOT BOUND.
+    "Grid Container Superior Dirito
+    CREATE OBJECT go_grid21
+      EXPORTING
+        i_parent          = go_cc21
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    lw_layout-sel_mode = 'B'.
+
+    REFRESH lt_filter.
+    lt_filter = VALUE #( ( fieldname = 'NRO_FAT_TRANSP'
+                          sign      = 'I'
+                          option    = 'EQ'
+                          low       = '' ) ).
+
+    PERFORM create_fch TABLES lt_fieldcat.
+    CALL METHOD go_grid21->set_table_for_first_display
+      EXPORTING
+        is_layout            = lw_layout
+        it_toolbar_excluding = lt_exclude
+      CHANGING
+        it_outtab            = gt_faturah
+        it_fieldcatalog      = lt_fieldcat
+        it_filter            = lt_filter.
+  ENDIF.
+
+  "FATURA DETALHES
+  IF go_grid22 IS NOT BOUND.
+    "Grid Container Inferior Direito
+    CREATE OBJECT go_grid22
+      EXPORTING
+        i_parent          = go_cc22
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    lw_layout-sel_mode = 'B'.
+
+    REFRESH lt_filter.
+    lt_filter = VALUE #( ( fieldname = 'NRO_FAT_TRANSP'
+                           sign      = 'I'
+                           option    = 'EQ'
+                           low       = '' ) ).
+
+    PERFORM create_fcd TABLES lt_fieldcat.
+    CALL METHOD go_grid22->set_table_for_first_display
+      EXPORTING
+        is_layout            = lw_layout
+        it_toolbar_excluding = lt_exclude
+      CHANGING
+        it_outtab            = gt_faturad
+        it_fieldcatalog      = lt_fieldcat
+        it_filter            = lt_filter.
+  ENDIF.
+
+  IF lines( gt_fatura ) EQ 1.
+    PERFORM read_fatura USING 1.
+
+  ELSE.
+    CASE sy-ucomm.
+      WHEN 'REFRESH' OR
+           'LIBERARFA'.
+        PERFORM: refresh_alv USING 'ALV_H' '',
+                 refresh_alv USING 'ALV_D' ''.
+    ENDCASE.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form  read_fatura
+*&---------------------------------------------------------------------*
+*& text
+*----------------------------------------------------------------------*
+FORM read_fatura USING p_line TYPE any.
+
+  READ TABLE gt_fatura INTO DATA(lw_fatura) INDEX p_line.
+  IF sy-subrc EQ 0.
+    READ TABLE gt_faturad TRANSPORTING NO FIELDS
+                          WITH KEY nro_fat_transp = lw_fatura-nro_fat_transp.
+    IF sy-subrc EQ 0.
+      READ TABLE gt_faturah INTO DATA(lw_faturah)
+                             WITH KEY nro_fat_transp = lw_fatura-nro_fat_transp.
+      IF sy-subrc EQ 0.
+        PERFORM: refresh_alv USING 'ALV_H' lw_fatura-nro_fat_transp,
+                 refresh_alv USING 'ALV_D' lw_fatura-nro_fat_transp.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form create_fc
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM create_fc TABLES p_fieldcat  TYPE lvc_t_fcat.
+
+  REFRESH p_fieldcat.
+  PERFORM save_fc TABLES p_fieldcat USING:
+        'NRO_FAT_TRANSP' 'ZTB_CTETMP' '' '' '' 'Fatura' 'X'.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form create_fcd
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM create_fcd TABLES p_fieldcat  TYPE lvc_t_fcat.
+
+  REFRESH p_fieldcat.
+  PERFORM save_fc TABLES p_fieldcat USING:
+        'CTE'     'ZTB_CTETMP'    ''  '' ''  'Chave acesso' '',
+        'NCT'     'ZTB_CTEXMLDOC' ''  '' ''  'Número Docto' '',
+        'SERIE'   'ZTB_CTEXMLDOC' ''  '' ''  'Série'        '',
+        'DEMI'    'ZTB_CTEXMLDOC' ''  '' ''  'Emissão'      '',
+        'TPREST'  'ZTB_CTEXMLDOC' ''  '' 'X' 'Frete'        '',
+        'CST'     'ZTB_CTEXMLICM' 'R' '' 'X' 'CST ICMS'     '',
+        'BC'      'ZTB_CTEXMLICM' ''  '' 'X' 'BC ICMS'      '',
+        'PICMS'   'ZTB_CTEXMLICM' ''  '' ''  '%ICMS'        '',
+        'VICMS'   'ZTB_CTEXMLICM' ''  '' 'X' 'ICMS'         '',
+        'NOME_E'  'ZTB_CTEXMLPAR' ''  '' ''  'Emissor'      '',
+        'CNPJ_E'  'ZTB_CTEXMLPAR' ''  '' ''  'CNPJ Emissor' '',
+        'NOME_T'  'ZTB_CTEXMLPAR' ''  '' ''  'Tomador'      '',
+        'CNPJ_T'  'ZTB_CTEXMLPAR' ''  '' ''  'CNPJ Tomador' '',
+        'CMUNINI' 'ZTB_CTEXMLDOC' ''  '' ''  'Origem'       '',
+        'CMUNFIM' 'ZTB_CTEXMLDOC' ''  '' ''  'Destino'      ''.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form create_fch
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM create_fch TABLES p_fieldcat  TYPE lvc_t_fcat.
+
+  REFRESH p_fieldcat.
+  PERFORM save_fc TABLES p_fieldcat USING:
+        'NRO_FAT_TRANSP' 'ZTB_CTETMP'     '' '' ''  'Fatura'       '',
+        'SAKNR'          'ZTB_CTETMP'     '' '' ''  'Conta'        '',
+        'KOSTL'          'ZTB_CTETMP'     '' '' ''  'Centro Custo' '',
+        'TPRESTT'        'ZTB_CTEXMLDOC'  '' '' 'X' 'Total'        '',
+        'QTDKEYS'        'ZTB_CTEXMLDOC'  '' '' 'X' 'Chaves'       '',
+        'NAME1'          'LFA1'           '' '' ''  'Fornecedor'   ''.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form save_fc
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM save_fc TABLES p_fieldcat  TYPE lvc_t_fcat
+              USING p_fieldname TYPE lvc_s_fcat-fieldname
+                    p_tabname   TYPE lvc_s_fcat-tabname
+                    p_just      TYPE lvc_s_fcat-just
+                    p_nozero    TYPE lvc_s_fcat-no_zero
+                    p_dosum     TYPE lvc_s_fcat-do_sum
+                    p_reptext   TYPE lvc_s_fcat-reptext
+                    p_hotspot   TYPE lvc_s_fcat-hotspot.
+
+  APPEND VALUE #( fieldname = p_fieldname
+                  tabname   = p_tabname
+                  just      = p_just
+                  no_zero   = p_nozero
+                  do_sum    = p_dosum
+                  reptext   = p_reptext
+                  hotspot   = p_hotspot
+                  ref_field = p_fieldname
+                ) TO p_fieldcat.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form libera_fatura
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM libera_fatura .
+
+  DATA: lt_rows TYPE lvc_t_row,
+        lr_cte  TYPE RANGE OF ztb_ctetmp-cte.
+
+  CALL METHOD go_grid1->get_selected_rows
+    IMPORTING
+      et_index_rows = lt_rows.
+
+  CHECK lines( lt_rows ) GT 0.
+
+  LOOP AT lt_rows INTO DATA(lw_rows).
+    READ TABLE gt_fatura INTO DATA(lw_fatura) INDEX lw_rows-index.
+
+    REFRESH lr_cte.
+    lr_cte = VALUE #( FOR lw_d IN gt_faturad ( sign   = 'I'
+                                               option = 'EQ'
+                                               low    = COND #( WHEN lw_fatura-nro_fat_transp EQ lw_d-nro_fat_transp
+                                                             THEN lw_d-cte
+                                                             ELSE space )
+                                               high   = '' ) ).
+    SORT lr_cte.
+    DELETE ADJACENT DUPLICATES FROM lr_cte COMPARING ALL FIELDS.
+    DELETE lr_cte WHERE low IS INITIAL.
+
+    IF lines( lr_cte ) GT 0.
+      UPDATE ztb_ctebap
+         SET status = 'A'
+       WHERE cte IN @lr_cte
+         AND direct EQ '1'
+         AND status EQ 'L'.
+
+      IF sy-subrc EQ 0.
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+          EXPORTING
+            wait = abap_true.
+
+        DELETE: gt_fatura  WHERE nro_fat_transp EQ lw_fatura-nro_fat_transp,
+                gt_faturad WHERE nro_fat_transp EQ lw_fatura-nro_fat_transp,
+                gt_faturah WHERE nro_fat_transp EQ lw_fatura-nro_fat_transp.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form REFRESH
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM refresh .
+
+  REFRESH: gt_fatura,
+           gt_faturad,
+           gt_faturah.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form refresh_alv
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM refresh_alv  USING p_alv
+                        p_low TYPE ztb_ctetmp-nro_fat_transp.
+
+  DATA lt_filter   TYPE lvc_t_filt.
+
+  CASE p_alv.
+    WHEN 'ALV_H'.
+      IF go_grid21 IS BOUND.
+        lt_filter = VALUE #( ( fieldname = 'NRO_FAT_TRANSP'
+                               sign      = 'I'
+                               option    = 'EQ'
+                               low       = p_low ) ).
+
+        CALL METHOD go_grid21->set_filter_criteria
+          EXPORTING
+            it_filter                 = lt_filter
+          EXCEPTIONS
+            no_fieldcatalog_available = 1
+            OTHERS                    = 2.
+
+        CALL METHOD go_grid21->refresh_table_display( ).
+        CALL METHOD lcl_gui_alv_grid_adv=>optimize_columns( go_grid21 ).
+      ENDIF.
+
+    WHEN 'ALV_D'.
+      IF go_grid22 IS BOUND.
+        lt_filter = VALUE #( ( fieldname = 'NRO_FAT_TRANSP'
+                               sign      = 'I'
+                               option    = 'EQ'
+                               low       = p_low ) ).
+
+        CALL METHOD go_grid22->set_filter_criteria
+          EXPORTING
+            it_filter                 = lt_filter
+          EXCEPTIONS
+            no_fieldcatalog_available = 1
+            OTHERS                    = 2.
+
+        CALL METHOD go_grid22->refresh_table_display( ).
+        CALL METHOD lcl_gui_alv_grid_adv=>optimize_columns( go_grid22 ).
+      ENDIF.
+
+  ENDCASE.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form change_fatura
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM change_fatura .
+
+ENDFORM.
