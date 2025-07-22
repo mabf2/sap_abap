@@ -45,7 +45,3 @@ lr_docnum = VALUE #( FOR lw_data IN gt_data ( sign   = 'I'
                                                                ELSE space )
                                               high   = space ) ).
 *
-APPEND VALUE #( type    = 'E'
-                number  = 400
-                message = 'Tomador de serviço não parametrizado no SAP' )  TO lt_return.
-*
