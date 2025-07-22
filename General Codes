@@ -5,43 +5,42 @@ bdcdata_tab = VALUE #(
    ( fnam = 'BDC_CURSOR'       fval = 'SEOCLASS-CLSNAME' )
    ( fnam = 'SEOCLASS-CLSNAME' fval = class_name )
    ( fnam = 'BDC_OKCODE'       fval = '=WB_DISPLAY' ) ).
-*
+*"----------------------------------------------------------------------
 APPEND VALUE #( type        = 'E'
                 message_v1  = lwa_mesg-msgv1
                 message_v2  = lwa_mesg-msgv2
                 message_v3  = lwa_mesg-msgv3
                 message_v4  = lwa_mesg-msgv4 ) TO lt_return.
-*
+*"----------------------------------------------------------------------
 DATA(opt) = VALUE ctu_params( dismode = 'E'
                               defsize = 'X' ).
-*
+*"----------------------------------------------------------------------
 DATA lr_seltab TYPE RANGE OF ztb_ctexml_ftp-lifnr.
 
-lr_seltab = VALUE #( ( sign = 'I'
+lr_seltab = VALUE #( ( sign   = 'I'
                        option = 'EQ'
-                       low  = p_lifnr
-                       high = '' ) ).
-*
+                       low    = p_lifnr
+                       high   = '' ) ).
+*"----------------------------------------------------------------------
 TYPES: BEGIN OF ty_cfop,
          cfop TYPE j_1bnflin-cfop,
        END OF ty_cfop.
 
-DATA: lv_value TYPE char100,
-      lt_cfop  TYPE TABLE OF ty_cfop,
-      lr_cfop  TYPE RANGE OF j_1bagn-cfop.
+DATA: lv TYPE char100 VALUE '5152;6152',
+      lt TYPE TABLE OF ty_cfop,
+      lr TYPE RANGE OF j_1bagn-cfop.
 
-lv_value = '5152;6152'.
-SPLIT lv_value AT ';' INTO TABLE lt_cfop.
+SPLIT lv AT ';' INTO TABLE lt.
 
-lr_cfop = VALUE #( FOR lw_cfop IN lt_cfop ( sign   = 'I'
-                                            option = 'EQ'
-                                            low    = lw_cfop-cfop
-                                            high   = space ) ).
-*
-lr_docnum = VALUE #( FOR lw_data IN gt_data ( sign   = 'I'
-                                              option = 'EQ'
-                                              low    = COND #( WHEN lw_data-sel EQ abap_true
-                                                               THEN lw_data-docnum
-                                                               ELSE space )
-                                              high   = space ) ).
-*
+lr = VALUE #( FOR lw IN lt ( sign   = 'I'
+                             option = 'EQ'
+                             low    = lw-cfop
+                             high   = space ) ).
+*"----------------------------------------------------------------------
+lr = VALUE #( FOR lw IN lt ( sign   = 'I'
+                             option = 'EQ'
+                             low    = COND #( WHEN lw-sel EQ abap_true
+                                              THEN lw-docnum
+                                              ELSE space )
+                             high   = space ) ).
+*"----------------------------------------------------------------------
