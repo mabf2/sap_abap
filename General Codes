@@ -44,3 +44,12 @@ lr = VALUE #( FOR lw IN lt ( sign   = 'I'
                                               ELSE space )
                              high   = space ) ).
 *"----------------------------------------------------------------------
+FIELD-SYMBOLS: <it_accfi> TYPE ANY TABLE,
+               <accfi>    TYPE accfi.
+
+ASSIGN ('(SAPLACC9)IT_ACCFI[]') TO <it_accfi>.
+LOOP AT <it_accfi> ASSIGNING <accfi>.
+  CHECK <accfi>-stcd2 IS NOT INITIAL.
+  <accfi>-stkzn = abap_true.
+ENDLOOP.
+*"----------------------------------------------------------------------
