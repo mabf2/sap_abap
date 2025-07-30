@@ -2,6 +2,7 @@ in OO
 DATA lt_xtaxcom TYPE TABLE OF taxcom.
 
 IMPORT lt_xtaxcom TO lt_xtaxcom[] FROM MEMORY ID 'lt_xtaxcom'.
+FREE MEMORY ID 'lt_xtaxcom'.
 
 EXPORT lt_xtaxcom FROM lt_xtaxcom TO MEMORY ID 'lt_xtaxcom'.
 *---
@@ -9,9 +10,11 @@ EXPORT ptst = ms_tax_control-icms_comp_fcp TO MEMORY ID 'CALCULATE_ICMS_COMP_DIF
 
 DATA lv_icms_comp_fcp      TYPE xfeld,
 IMPORT ptst = lv_icms_comp_fcp FROM MEMORY ID 'CALCULATE_ICMS_COMP_DIFAL'.
+FREE MEMORY ID 'CALCULATE_ICMS_COMP_DIFAL'.
 *---
 DATA lw_rv64a920   TYPE ty_rv64a920.
 IMPORT lw_rv64a920 TO lw_rv64a920 FROM MEMORY ID 'ZINC_RV64A920'.
+FREE MEMORY ID 'ZINC_RV64A920'.
 
 lw_rv64a920-knumv = w_xkomv-knumv.
 lw_rv64a920-kposn = w_xkomv-kposn.
