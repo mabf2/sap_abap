@@ -46,3 +46,8 @@ SELECT
          steuc = '6112.31.00' )
    AND labst > 0
    AND verpr > 0
+*
+SELECT a.*  FROM "SAPABAP1"."J_1BNFDOC" a 
+ WHERE docdat BETWEEEN '20250101' AND '20251231' 
+   AND NFTYPE in ( 'J2','B4','ZP', 'ZW' ) 
+   AND not EXISTS ( select distinct 1 from "SAPABAP1"."J_1BNFLIN" b where a.docnum = b.docnum  )
