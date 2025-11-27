@@ -1,0 +1,217 @@
+*&---------------------------------------------------------------------*
+*& Report ZCOMPORDER
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zcomporder.
+
+TABLES: rfcdes,
+        e070.
+
+DATA: rfcdest    TYPE rfcdes-rfcdest,
+
+      nodelta    TYPE c,
+      e071_1     TYPE TABLE OF e071,
+      e071_2     TYPE TABLE OF e071,
+      e071_bt    TYPE TABLE OF e071,
+      abaptext_1 TYPE TABLE OF abaptxt255,
+      abaptext_2 TYPE TABLE OF abaptxt255,
+      trdir_1    TYPE TABLE OF trdir,
+      trdir_2    TYPE TABLE OF trdir.
+
+SELECTION-SCREEN BEGIN OF BLOCK b0 WITH FRAME TITLE TEXT-001.
+  SELECT-OPTIONS trkorr  FOR e070-trkorr    OBLIGATORY NO-EXTENSION NO INTERVALS.
+SELECTION-SCREEN END OF BLOCK b0.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-002.
+  PARAMETERS: dev900 RADIOBUTTON GROUP rb2,
+              qas500 RADIOBUTTON GROUP rb2.
+SELECTION-SCREEN END OF BLOCK b1.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR trkorr-low.
+  PERFORM trkorr_f4 CHANGING trkorr-low.
+
+START-OF-SELECTION.
+  PERFORM: get_objects,
+           get_versions.
+
+*&---------------------------------------------------------------------*
+*& Form trkorr_f4
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM trkorr_f4  CHANGING p_trkorr TYPE e070-trkorr.
+
+  CALL FUNCTION 'TR_F4_REQUESTS'
+    EXPORTING
+      iv_username         = '*'
+      iv_trstatus         = '*'
+      iv_title            = 'Select Transport'(001)
+    IMPORTING
+      ev_selected_request = p_trkorr.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form get_objects
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM get_objects .
+
+  nodelta = abap_true.
+
+  CASE abap_true.
+    WHEN dev900.
+      rfcdest = 'DEVCLNT900'.
+    WHEN qas500.
+      rfcdest = 'QASCLNT500'.
+  ENDCASE.
+
+  CALL FUNCTION 'SCTS_COMP_REPOS_COMPARE_REPOS'
+    EXPORTING
+      dest1                      = ''
+      dest2                      = rfcdest
+      cust_modi_flag             = ''
+      cust_flag                  = 'B'
+      modi_flag                  = 'C'
+      sap_flag                   = 'D'
+      paket_flag                 = 'E'
+      paket_name                 = ''
+      subpaket_flag              = ''
+      req_flag                   = 'X'
+      req_name                   = trkorr-low
+      obj_flag                   = 'H'
+      soft_flag                  = 'L'
+      namespace_flag             = 'I'
+      name_space                 = ''
+      auth_flag                  = 'J'
+      name_auth                  = ''
+      appl_flag                  = 'K'
+      name_appl                  = ''
+      name_soft                  = ''
+    TABLES
+      et_only1                   = e071_1
+      et_only2                   = e071_2
+      et_both12                  = e071_bt
+    EXCEPTIONS
+      packet_not_in_sys1         = 1
+      packet_not_in_sys2         = 2
+      req_not_in_sys1            = 3
+      req_not_in_sys2            = 4
+      comunication_failure_dest1 = 5
+      comunication_failure_dest2 = 6
+      no_authority_dest2         = 7
+      timeout                    = 8
+      OTHERS                     = 9.
+
+  SORT: e071_1  BY object obj_name,
+        e071_2  BY object obj_name,
+        e071_bt BY object obj_name.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form get_versions
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM get_versions .
+
+  DATA: lv_objname    LIKE vrsd-objname,
+        lv_objtype    LIKE vrsd-objtype,
+
+        lt_smodilog_1 TYPE TABLE OF smodilog,
+        lt_smodilog_2 TYPE TABLE OF smodilog.
+
+  LOOP AT e071_bt INTO DATA(lw_e071_bt).
+    lv_objname = lw_e071_bt-obj_name.
+    lv_objtype = lw_e071_bt-object.
+
+    CALL FUNCTION 'SVRS_GET_REPS_FROM_OBJECT'
+      EXPORTING
+        destination                  = ''
+        object_name                  = lv_objname
+        object_type                  = lv_objtype
+        versno                       = '00000'
+        iv_no_release_transformation = 'X'
+      TABLES
+        repos_tab                    = abaptext_1
+        trdir_tab                    = trdir_1
+        vsmodilog                    = lt_smodilog_1
+      EXCEPTIONS
+        no_version                   = 01.
+
+    CALL FUNCTION 'SVRS_GET_REPS_FROM_OBJECT'
+      EXPORTING
+        destination                  = rfcdest
+        object_name                  = lv_objname
+        object_type                  = lv_objtype
+        versno                       = '00000'
+        iv_no_release_transformation = 'X'
+      TABLES
+        repos_tab                    = abaptext_2
+        trdir_tab                    = trdir_2
+        vsmodilog                    = lt_smodilog_2
+      EXCEPTIONS
+        no_version                   = 01.
+
+    IF lines( abaptext_1 ) GT 0 OR lines( trdir_1 ) GT 0 OR
+       lines( abaptext_2 ) GT 0 OR lines( trdir_2 ) GT 0.
+      PERFORM get_delta USING lw_e071_bt.
+    ENDIF.
+
+    REFRESH: abaptext_1,
+             trdir_1,
+             abaptext_2,
+             trdir_2.
+  ENDLOOP.
+
+  IF lines( e071_1 ) GT 0.
+    WRITE: / '*& Local 1'.
+    LOOP AT e071_1 INTO DATA(lw_e071).
+      WRITE: / |{ lw_e071-object } ({ lw_e071-obj_name })|.
+    ENDLOOP.
+  ENDIF.
+
+  IF lines( e071_2 ) GT 0.
+    WRITE: / '*& Local 2'.
+    LOOP AT e071_2 INTO lw_e071.
+      WRITE: / |{ lw_e071-object } ({ lw_e071-obj_name })|.
+    ENDLOOP.
+  ENDIF.
+
+  IF nodelta EQ abap_true.
+    WRITE: / '*& Não há diferenças entre os ambientes'.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form get_delta
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM get_delta USING p_e071 TYPE e071.
+
+  DATA: abaptext_delta TYPE TABLE OF vxabapt255,
+        trdir_delta    TYPE TABLE OF xtrdir.
+
+  CALL FUNCTION 'SVRS_COMPUTE_DELTA_REPS'
+    EXPORTING
+      compare_mode            = ''
+      ignore_case_differences = 'X'
+    TABLES
+      texttab_old             = abaptext_1
+      texttab_new             = abaptext_2
+      trdirtab_old            = trdir_1
+      trdirtab_new            = trdir_2
+      trdir_delta             = trdir_delta
+      text_delta              = abaptext_delta.
+
+  READ TABLE abaptext_delta INDEX 1 TRANSPORTING NO FIELDS.
+  IF sy-subrc EQ 0.
+    nodelta = abap_false.
+    WRITE: / |{ p_e071-object } ({ p_e071-obj_name })|.
+  ELSE.
+    "WRITE: / |{ p_e071-object } ({ p_e071-obj_name }) - no delta|.
+  ENDIF.
+
+ENDFORM.
