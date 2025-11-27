@@ -1,4 +1,4 @@
-DATA lv_msgtxt TYPE CHAR255.
+DATA lv_msgtxt TYPE msgtxt.
 
 EXCEPTIONS
      COMMUNICATION_FAILURE        = 1 MESSAGE lv_msgtxt
