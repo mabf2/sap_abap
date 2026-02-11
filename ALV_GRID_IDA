@@ -1,0 +1,199 @@
+*&---------------------------------------------------------------------*
+*& Report ZRMM_REL_REFTRIB_NFE
+*&---------------------------------------------------------------------*
+*& CDS View ZC_REFORMA_TRIBUTARIA
+*& Antigo AQL4SYSTQV000212REFORMA=======
+*&---------------------------------------------------------------------*
+REPORT zrmm_rel_reftrib_nfe.
+
+TABLES zsql_reftrib.
+
+CLASS lcl_handler_action DEFINITION.
+  PUBLIC SECTION.
+    DATA o_ida TYPE REF TO if_salv_gui_table_ida.
+
+    METHODS:
+      constructor   IMPORTING io_ida TYPE REF TO if_salv_gui_table_ida,
+      handle_action FOR EVENT function_selected OF if_salv_gui_toolbar_ida
+        IMPORTING ev_fcode.
+
+ENDCLASS.
+
+CLASS lcl_handler_action IMPLEMENTATION.
+  METHOD constructor.
+    o_ida = io_ida.
+  ENDMETHOD.
+
+  METHOD handle_action.
+
+    CASE ev_fcode.
+      WHEN 'REFRESH'.
+        o_ida->refresh( ).
+      WHEN OTHERS.
+        " Nothing to do.
+    ENDCASE.
+
+  ENDMETHOD.
+ENDCLASS.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  SELECT-OPTIONS: s_docnum FOR zsql_reftrib-docnum,
+                  s_nftype FOR zsql_reftrib-nftype,
+                  s_docdat FOR zsql_reftrib-docdat,
+                  s_pstdat FOR zsql_reftrib-pstdat,
+                  s_bukrs  FOR zsql_reftrib-bukrs,
+                  s_branch FOR zsql_reftrib-branch,
+                  s_cfop   FOR zsql_reftrib-cfop,
+                  s_werks  FOR zsql_reftrib-werks,
+                  s_taxtyp FOR zsql_reftrib-taxtyp,
+                  s_cst    FOR zsql_reftrib-cst,
+                  s_cct    FOR zsql_reftrib-cclasstrib,
+                  s_nbm    FOR zsql_reftrib-nbm.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
+  PARAMETERS p_layout TYPE slis_vari MODIF ID lay.
+SELECTION-SCREEN END OF BLOCK b2.
+*&---------------------------------------------------------------------*
+*& AT SELECTION-SCREEN
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN OUTPUT.
+  PERFORM: f_tratar_tela.
+
+*&---------------------------------------------------------------------*
+*& START-OF-SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM: f_exibir_relatorio.
+
+*&---------------------------------------------------------------------*
+*& Form f_tratar_tela
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM f_tratar_tela.
+
+*  SELECT 'I',
+*         'EQ',
+*         low
+*    FROM tvarvc
+*    WHERE name = 'Z_REL_RECUSA_WERKS'
+*    ORDER BY low
+*    INTO TABLE @s_centro.
+*
+*  IF sy-subrc <> 0.
+*    MESSAGE 'Favor preencher STVARV: Z_REL_RECUSA_WERKS. ' TYPE 'S' DISPLAY LIKE 'E'.
+*    LEAVE LIST-PROCESSING.
+*  ENDIF.
+*
+*  LOOP AT SCREEN.
+*    IF screen-name = 'S_CENTRO-LOW'.
+*      screen-input = 0.
+*    ENDIF.
+*    MODIFY SCREEN.
+*  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form f_exibir_relatorio
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM f_exibir_relatorio.
+
+  IF s_docnum[] IS INITIAL AND
+     s_docdat[] IS INITIAL AND
+     s_pstdat[] IS INITIAL.
+    MESSAGE 'Informar ao menos um filtro.' TYPE 'S' DISPLAY LIKE 'E'.
+    LEAVE LIST-PROCESSING.
+  ENDIF.
+
+  "CRIAR REFERêNCIA ALV IDA
+  DATA(lr_alv) = cl_salv_gui_table_ida=>create_for_cds_view( iv_cds_view_name = 'ZCDS_REFORMATRIBUTARIA' ).
+
+  "Layout
+  lr_alv->layout_persistence( )->set_persistence_options( is_persistence_key = VALUE #( report_name = sy-repid )
+                                                          i_global_save_allowed = abap_true
+                                                          i_user_specific_save_allowed = abap_true ).
+
+  lr_alv->toolbar( )->enable_listbox_for_layouts( ). " habilitar a lista suspensa de opções
+  IF p_layout IS NOT INITIAL. "definir layout da tela de seleção
+    TRY.
+        lr_alv->layout_persistence( )->set_start_layout( p_layout ).
+      CATCH cx_salv_ida_unknown_name.
+        MESSAGE i000(0k) WITH |Layout { p_layout } não Encontrato - Continuar sem layout...|.
+    ENDTRY.
+  ENDIF.
+
+
+  "CONSTRUIR RANGES DAS TABELAS
+  DATA(lr_range_collect) = NEW cl_salv_range_tab_collector( ).
+
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'DOCNUM'     it_ranges = s_docnum[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'NFTYPE'     it_ranges = s_nftype[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'DOCDAT'     it_ranges = s_docdat[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'PSTDAT'     it_ranges = s_pstdat[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'BUKRS '     it_ranges = s_bukrs[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'BRANCH'     it_ranges = s_branch[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'CFOP'       it_ranges = s_cfop[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'WERKS'      it_ranges = s_werks[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'TAXTYP'     it_ranges = s_taxtyp[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'CST'        it_ranges = s_cst[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'CCLASSTRIB' it_ranges = s_cct[] ).
+  lr_range_collect->add_ranges_for_name( EXPORTING iv_name = 'NBM'        it_ranges = s_nbm[] ).
+
+  lr_range_collect->get_collected_ranges( IMPORTING et_named_ranges = DATA(lt_selopt) ).
+
+  "INSERIR SELECT-OPTION NA CDS
+  lr_alv->set_select_options( it_ranges = lt_selopt ).
+
+  "INSERIR AUTHORITY-CHECK
+  lr_alv->add_authorization_for_object(
+    EXPORTING
+      iv_authorization_object = 'ZWERKS'
+      it_activities           = VALUE #( ( auth_field = 'ACTVT' value = '03' ) )
+      it_field_mapping        = VALUE #( ( auth_field = 'WERKS' view_field = 'WERKS' ) )
+  ).
+
+  "LAYOUT ALV
+  DATA(lr_disp) = lr_alv->display_options( ).
+  lr_disp->enable_alternating_row_pattern( ).
+
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'DOCNUM'     iv_header_text = 'Nº documento' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'NFTYPE'     iv_header_text = 'Ctg.de nota fiscal' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'DOCDAT'     iv_header_text = 'Data do documento' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'PSTDAT'     iv_header_text = 'Data de lançamento ' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'MANUAL'     iv_header_text = 'Criado manualmente ' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'BUKRS'      iv_header_text = 'Empresa' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'BRANCH'     iv_header_text = 'Local de negócios' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'CANCEL'     iv_header_text = 'Estornado' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'NFENUM'     iv_header_text = 'Número de nota fiscal eletrônica' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'DIRECT'     iv_header_text = 'Direção do movimento' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'ITMNUM'     iv_header_text = 'Nº item do documento' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'CFOP'       iv_header_text = 'Código e extensão CFOP' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'WERKS'      iv_header_text = 'Centro' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'CST'        iv_header_text = 'Cód Situação Tributária CBS e IBS' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'CCLASSTRIB' iv_header_text = 'Cód Classificação Tributária CBS e IBS' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'NBM'        iv_header_text = 'Controle p/imposto seletivo' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'TAXTYP'     iv_header_text = 'Tipo de imposto ' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'BASE'       iv_header_text = 'Montante básico' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'RATE'       iv_header_text = 'Taxa de imposto' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'TAXVAL'     iv_header_text = 'Valor Fiscal' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'OTHBAS'     iv_header_text = 'Outro montante básico' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'EXCBAS'     iv_header_text = 'Montante básico excluído' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'WAERK'      iv_header_text = 'Moeda' ).
+  lr_alv->field_catalog( )->set_field_header_texts( EXPORTING iv_field_name = 'RATE4DEC'   iv_header_text = 'Taxa de imposto' ).
+
+  "ADD BOTÃO DE ATUALIZAÇÃO
+  lr_alv->toolbar( )->add_button( EXPORTING iv_fcode     = 'REFRESH'
+                                            iv_icon      = '@42@'
+                                            iv_quickinfo = 'Atualizar relatório' ).
+
+  "HANDLER ACTION
+  DATA(o_handler) = NEW lcl_handler_action( io_ida = lr_alv ).
+  SET HANDLER o_handler->handle_action FOR lr_alv->toolbar( ).
+
+  "EXIBIR ALV
+  lr_alv->fullscreen( )->display( ).
+
+ENDFORM.
