@@ -1,0 +1,266 @@
+*&---------------------------------------------------------------------*
+*& Report ZRMM_REL_REFTRIB_NFE_II
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zrmm_rel_reftrib_nfe_ii.
+
+INCLUDE: zrmm_rel_reftrib_nfe_ii_top,
+         zrmm_rel_reftrib_nfe_ii_scr,
+         zrmm_rel_reftrib_nfe_ii_frm.
+
+*&---------------------------------------------------------------------*
+*& INITIALIZATION
+*&---------------------------------------------------------------------*
+INITIALIZATION.
+  gs_variant-report   = sy-repid.
+  gs_variant-username = sy-uname.
+
+*&---------------------------------------------------------------------*
+*& AT SELECTION-SCREEN
+*&---------------------------------------------------------------------*
+AT SELECTION-SCREEN OUTPUT.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_layout.
+  PERFORM variant.
+
+*&---------------------------------------------------------------------*
+*& START-OF-SELECTION
+*&---------------------------------------------------------------------*
+START-OF-SELECTION.
+  CALL SCREEN 0100.
+
+*&---------------------------------------------------------------------*
+*& Module STATUS_0100 OUTPUT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+
+  SET PF-STATUS '0100'.
+  SET TITLEBAR '0100'.
+
+  PERFORM alv_grid.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'BACK' OR 'LEAV' OR 'CANC'.
+      SET SCREEN 0.
+      LEAVE LIST-PROCESSING.
+
+    WHEN OTHERS.
+
+  ENDCASE.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*& Include          ZRMM_REL_REFTRIB_NFE_II_TOP
+*&---------------------------------------------------------------------*
+TABLES zsql_reftrib.
+
+TYPES: BEGIN OF ty_data.
+         INCLUDE STRUCTURE zsql_reftrib.
+TYPES:   cellstyles TYPE lvc_t_styl,
+       END OF ty_data.
+
+DATA: gt_fieldcatalog TYPE lvc_t_fcat,
+      gt_data         TYPE TABLE OF ty_data,
+
+      go_alv          TYPE REF TO cl_gui_alv_grid,
+      go_splitter     TYPE REF TO cl_gui_splitter_container,
+      go_container    TYPE REF TO cl_gui_container,
+
+      gs_layout       TYPE lvc_s_layo,
+      gs_variant      TYPE disvariant.
+
+*&---------------------------------------------------------------------*
+*& Include          ZRMM_REL_REFTRIB_NFE_II_SCR
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  SELECT-OPTIONS: s_docnum FOR zsql_reftrib-docnum,
+                  s_nftype FOR zsql_reftrib-nftype,
+                  s_docdat FOR zsql_reftrib-docdat,
+                  s_pstdat FOR zsql_reftrib-pstdat,
+                  s_bukrs  FOR zsql_reftrib-bukrs,
+                  s_branch FOR zsql_reftrib-branch,
+                  s_cfop   FOR zsql_reftrib-cfop,
+                  s_werks  FOR zsql_reftrib-werks,
+                  s_taxtyp FOR zsql_reftrib-taxtyp,
+                  s_cst    FOR zsql_reftrib-cst,
+                  s_cct    FOR zsql_reftrib-cclasstrib,
+                  s_nbm    FOR zsql_reftrib-nbm.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
+  PARAMETERS p_layout TYPE disvariant-variant.
+SELECTION-SCREEN END OF BLOCK b2.
+
+*&---------------------------------------------------------------------*
+*& Include          ZRMM_REL_REFTRIB_NFE_II_FRM
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form variant
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM variant .
+
+  gs_variant-report     = sy-repid.
+  gs_variant-username   = sy-uname.
+
+  CALL FUNCTION 'REUSE_ALV_VARIANT_F4'
+    EXPORTING
+      is_variant    = gs_variant
+      i_save        = 'A'
+    IMPORTING
+      es_variant    = gs_variant
+    EXCEPTIONS
+      not_found     = 1
+      program_error = 2
+      OTHERS        = 3.
+
+  IF sy-subrc = 0.
+    p_layout  = gs_variant-variant.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form refresh
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM refresh .
+
+  go_alv->refresh_table_display(
+        EXPORTING
+          i_soft_refresh = abap_true
+      ).
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form PREENCHE_STYLE
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM preenche_style .
+
+  DATA: lt_fieldcatalog TYPE TABLE OF dfies,
+        ls_cellstyles   TYPE lvc_s_styl,
+        lt_cellstyles   TYPE TABLE OF lvc_s_styl.
+
+  CALL FUNCTION 'DDIF_NAMETAB_GET'
+    EXPORTING
+      tabname   = 'ZSQL_REFTRIB'
+    TABLES
+      dfies_tab = lt_fieldcatalog
+    EXCEPTIONS
+      not_found = 1
+      OTHERS    = 2.
+
+  LOOP AT lt_fieldcatalog INTO DATA(lw_fieldcatalog).
+    ls_cellstyles-fieldname = lw_fieldcatalog-fieldname.
+    READ TABLE lt_fieldcatalog TRANSPORTING NO FIELDS WITH KEY fieldname = lw_fieldcatalog-fieldname
+                                                               keyflag   = abap_true.
+    IF sy-subrc EQ 0.
+      ls_cellstyles-style = cl_gui_alv_grid=>mc_style_disabled.
+    ELSE.
+      ls_cellstyles-style = cl_gui_alv_grid=>mc_style_enabled.
+    ENDIF.
+
+    INSERT ls_cellstyles INTO TABLE lt_cellstyles.
+  ENDLOOP.
+
+  LOOP AT gt_data ASSIGNING FIELD-SYMBOL(<fs_data>).
+    <fs_data>-cellstyles[] = lt_cellstyles.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form alv_grid
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+FORM alv_grid .
+
+  IF go_alv IS NOT BOUND.
+    gs_layout-zebra      = abap_true.
+    gs_layout-cwidth_opt = abap_true.
+    gs_layout-stylefname = 'CELLSTYLES'.
+    gs_layout-sel_mode   = 'A'.
+
+    SELECT * FROM zcds_reformatributaria
+      INTO CORRESPONDING FIELDS OF TABLE @gt_data
+     WHERE docnum IN @s_docnum
+       AND nftype IN @s_nftype
+       AND docdat IN @s_docdat
+       AND pstdat IN @s_pstdat
+       AND bukrs IN @s_bukrs
+       AND branch IN @s_branch
+       AND cfop IN @s_cfop
+       AND werks IN @s_werks
+       AND taxtyp IN @s_taxtyp
+       AND cst IN @s_cst
+       AND cclasstrib IN @s_cct
+       AND nbm IN @s_nbm.
+
+    CALL FUNCTION 'ZFIELDCATALOG'
+      EXPORTING
+        i_structure_name = 'ZSQL_REFTRIB'
+      IMPORTING
+        e_fieldcatalog   = gt_fieldcatalog.
+
+    PERFORM preenche_style.
+
+    CREATE OBJECT go_splitter
+      EXPORTING
+        parent  = cl_gui_container=>default_screen
+        rows    = 1
+        columns = 1.
+
+    CALL METHOD go_splitter->get_container
+      EXPORTING
+        row       = 1
+        column    = 1
+      RECEIVING
+        container = go_container.
+
+    CREATE OBJECT go_alv
+      EXPORTING
+        i_parent          = go_container
+      EXCEPTIONS
+        error_cntl_create = 1
+        error_cntl_init   = 2
+        error_cntl_link   = 3
+        error_dp_create   = 4
+        OTHERS            = 5.
+
+    CALL METHOD go_alv->set_table_for_first_display
+      EXPORTING
+        i_structure_name = 'ZSQL_REFTRIB'
+        is_variant       = gs_variant
+        i_save           = 'A'
+        i_default        = abap_true
+        is_layout        = gs_layout
+      CHANGING
+        it_outtab        = gt_data
+        it_fieldcatalog  = gt_fieldcatalog.
+
+    CALL METHOD go_alv->set_toolbar_interactive.
+
+    CALL METHOD cl_gui_control=>set_focus
+      EXPORTING
+        control = go_alv.
+  ELSE.
+
+    PERFORM refresh.
+  ENDIF.
+
+ENDFORM.
