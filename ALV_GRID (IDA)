@@ -54,6 +54,24 @@ SELECTION-SCREEN END OF BLOCK b1.
 SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
   PARAMETERS p_layout TYPE slis_vari MODIF ID lay.
 SELECTION-SCREEN END OF BLOCK b2.
+
+*&---------------------------------------------------------------------*
+*& INITIALIZATION
+*&---------------------------------------------------------------------*
+INITIALIZATION.
+  gs_variant-report   = sy-repid.
+  gs_variant-username = sy-uname.
+
+  SELECT variant FROM ltdxd
+   WHERE relid EQ 'LT'
+     AND report EQ @sy-repid
+     AND handle EQ @space
+     AND log_group EQ @space
+     AND username EQ @space
+     AND type EQ 'F'
+    INTO @p_layout UP TO 1 ROWS.
+  ENDSELECT.
+
 *&---------------------------------------------------------------------*
 *& AT SELECTION-SCREEN
 *&---------------------------------------------------------------------*
