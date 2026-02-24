@@ -1,0 +1,482 @@
+REPORT zrfi_gera_carta_extrajudic.
+
+TABLES: bseg.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS:
+    p_bukrs TYPE bseg-bukrs OBLIGATORY,
+    p_kunnr TYPE bseg-kunnr OBLIGATORY,
+    p_stida TYPE rfpdo-allgstid DEFAULT sy-datum OBLIGATORY,
+    p_email TYPE adr6-smtp_addr.
+  SELECT-OPTIONS:
+    so_blart FOR bseg-h_blart.
+  PARAMETERS:
+    p_emaito TYPE text30 OBLIGATORY,
+    p_emafro TYPE text30 OBLIGATORY,
+    p_cargo  TYPE text30 OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK b1.
+
+DATA:
+  ok_code LIKE sy-ucomm.
+
+CLASS lcl_report DEFINITION FINAL.
+  PUBLIC SECTION.
+    TYPES:
+      BEGIN OF ty_alv,
+        status TYPE coru_beakz_icon,
+        kunnr  TYPE bseg-kunnr,
+        razao  TYPE z_nome_61,
+        xblnr  TYPE bkpf-xblnr,
+        buzei  TYPE bseg-buzei,
+        wrbtr  TYPE bseg-wrbtr,
+        netdt  TYPE bseg-netdt,
+        bldat  TYPE bseg-h_bldat,
+        verzn  TYPE verzn,
+        blart  TYPE bseg-h_blart,
+        belnr  TYPE bseg-belnr,
+        rebzg  TYPE bseg-rebzg,
+        xref2  TYPE bseg-xref2,
+        sgtxt  TYPE bseg-sgtxt,
+        mensg  TYPE ukm_monitor_message_text,
+      END OF ty_alv,
+
+      BEGIN OF ty_kna1,
+        kunnr TYPE kna1-kunnr,
+        name1 TYPE kna1-name1,
+        name2 TYPE kna1-name2,
+        stcd1 TYPE kna1-stcd1,
+        stras TYPE kna1-stras,
+        ort01 TYPE kna1-ort01,
+        regio TYPE kna1-regio,
+        pstlz TYPE kna1-pstlz,
+        cnpj  TYPE char18,
+      END OF ty_kna1,
+
+      BEGIN OF ty_bseg,
+        bukrs TYPE bseg-bukrs,
+        belnr TYPE bseg-belnr,
+        gjahr TYPE bseg-gjahr,
+        buzei TYPE bseg-buzei,
+        rebzg TYPE bseg-rebzg,
+        rebzj TYPE bseg-rebzj,
+        rebzz TYPE bseg-rebzz,
+        wrbtr TYPE bseg-wrbtr,
+      END OF ty_bseg,
+
+      BEGIN OF ty_parag,
+        line TYPE string,
+      END OF ty_parag.
+
+    TYPES: BEGIN OF ty_empr.
+             INCLUDE TYPE ztfi_empr_banco.
+    TYPES:   cnpjchar TYPE char18.
+    TYPES: END OF ty_empr.
+
+    TYPES:
+      ty_t_alv     TYPE STANDARD TABLE OF ty_alv,
+      ty_t_parag   TYPE STANDARD TABLE OF ty_parag,
+      ty_t_faturas TYPE STANDARD TABLE OF zsfi_carta_extrajud_faturas,
+      ty_t_bseg    TYPE SORTED TABLE OF ty_bseg WITH UNIQUE KEY bukrs belnr gjahr buzei
+                                               WITH NON-UNIQUE SORTED KEY fatura_key COMPONENTS bukrs rebzg rebzj rebzz,
+      ty_t_months  TYPE SORTED TABLE OF t247 WITH UNIQUE KEY mnr,
+      ty_t_kna1    TYPE SORTED TABLE OF ty_kna1 WITH UNIQUE KEY kunnr,
+      ty_t_empr    TYPE SORTED TABLE OF ty_empr WITH UNIQUE KEY empresa banco conta,
+      ty_main      TYPE zsfi_carta_extrajud_main.
+
+    CONSTANTS:
+      c_container_name TYPE scrfname         VALUE 'ALV_CONTAINER',
+      c_send           TYPE salv_de_function VALUE 'SEND',
+      c_email_enviado  TYPE icon-name        VALUE 'ICON_CHECKED',
+      c_email_erro     TYPE icon-name        VALUE 'ICON_LED_RED',
+      c_icon_send      TYPE string           VALUE '@1S@',
+      c_credito        TYPE bseg-shkzg       VALUE 'H',
+      c_max_subject    TYPE i                VALUE 50,
+      c_max_file_name  TYPE i                VALUE 46.
+
+    CLASS-METHODS:
+      start_of_selection,
+      fetch_data,
+      show_alv,
+      first_display,
+      custom_container_free,
+      get_email,
+      control_screen,
+      get_date          IMPORTING din TYPE sy-datum RETURNING VALUE(dout) TYPE char10,
+      send_email        IMPORTING rows TYPE salv_t_row,
+      get_text          IMPORTING name TYPE thead-tdname CHANGING text TYPE tline_tab message TYPE syst,
+      get_status        IMPORTING icon TYPE icon-name RETURNING VALUE(status) TYPE char4,
+      on_added_function IMPORTING function TYPE salv_de_function,
+      replace_tags      CHANGING parag TYPE ty_parag,
+      add               IMPORTING line TYPE any,
+      add_function      IMPORTING functions TYPE REF TO cl_salv_functions
+                                  function  TYPE salv_de_function
+                                  icon      TYPE string OPTIONAL
+                                  text      TYPE rs38m-itex132 OPTIONAL,
+      change_colunm     IMPORTING columns TYPE REF TO cl_salv_columns_table
+                                  name    TYPE lvc_fname
+                                  text    TYPE rs38m-itex132 OPTIONAL
+                                  len     TYPE lvc_outlen OPTIONAL
+                                  link    TYPE flag OPTIONAL.
+
+  PRIVATE SECTION.
+    CLASS-DATA:
+      gt_alv              TYPE ty_t_alv,
+      gt_kna1             TYPE ty_t_kna1,
+      gt_empr             TYPE ty_t_empr,
+      gt_months           TYPE ty_t_months,
+      go_custom_container TYPE REF TO cl_gui_custom_container,
+      go_grid             TYPE REF TO cl_salv_table,
+      gv_body             TYPE string,
+      gv_kunnr            TYPE kna1-kunnr,
+      gv_email            TYPE adr6-smtp_addr.
+ENDCLASS.
+
+CLASS lcl_handle DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS:
+      on_added_function FOR EVENT added_function OF cl_salv_events_table
+        IMPORTING e_salv_function.
+ENDCLASS.
+
+AT SELECTION-SCREEN ON p_kunnr.
+  lcl_report=>get_email( ).
+
+AT SELECTION-SCREEN.
+  lcl_report=>control_screen( ).
+
+START-OF-SELECTION.
+  lcl_report=>start_of_selection( ).
+
+CLASS lcl_report IMPLEMENTATION.
+  METHOD start_of_selection.
+    fetch_data( ).
+    show_alv( ).
+  ENDMETHOD.
+
+  METHOD fetch_data.
+    CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+      EXPORTING
+        text = TEXT-002.
+
+    SELECT.....
+
+    IF lt_bsid[] IS INITIAL.
+      MESSAGE s208(00) WITH TEXT-003 DISPLAY LIKE 'W'.
+      RETURN.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD show_alv.
+    IF gt_alv[] IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    IF p_email IS INITIAL.
+      MESSAGE s208(00) WITH TEXT-016 DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
+
+    CALL SCREEN '9000'.
+  ENDMETHOD.
+
+  METHOD custom_container_free.
+    go_custom_container->free( ).
+  ENDMETHOD.
+
+  METHOD first_display.
+    DATA:
+      lo_display      TYPE REF TO cl_salv_display_settings,
+      lo_columns      TYPE REF TO cl_salv_columns_table,
+      lo_functions    TYPE REF TO cl_salv_functions,
+      lo_events       TYPE REF TO cl_salv_events_table,
+      lo_aggregations TYPE REF TO cl_salv_aggregations,
+      lo_handle       TYPE REF TO lcl_handle,
+      lo_selections   TYPE REF TO cl_salv_selections,
+      lv_text         TYPE string.
+
+
+    IF go_custom_container IS NOT BOUND.
+      "Create container
+      CREATE OBJECT go_custom_container
+        EXPORTING
+          container_name              = c_container_name
+        EXCEPTIONS
+          cntl_error                  = 1
+          cntl_system_error           = 2
+          create_error                = 3
+          lifetime_error              = 4
+          lifetime_dynpro_dynpro_link = 5.
+
+      IF sy-subrc IS NOT INITIAL.
+        MESSAGE ID sy-msgid TYPE 'S' NUMBER sy-msgno WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE 'E'.
+        RETURN.
+      ENDIF.
+
+      TRY.
+          cl_salv_table=>factory(
+            EXPORTING
+              r_container  = go_custom_container
+            IMPORTING
+              r_salv_table = go_grid
+            CHANGING
+              t_table      = gt_alv ).
+
+        CATCH cx_salv_msg INTO DATA(lx_msg).
+          MESSAGE s208(00) WITH lx_msg->get_text( ) DISPLAY LIKE 'E'.
+          RETURN.
+      ENDTRY.
+
+      lo_display = go_grid->get_display_settings( ).
+      lo_display->set_striped_pattern( abap_true ).  "Zebrado
+
+      "Propriedades de layout
+      lo_columns = go_grid->get_columns( ).
+      lo_columns->set_optimize( if_salv_c_bool_sap=>true ).
+
+      "Configura colunas
+      change_colunm( columns = lo_columns name = 'STATUS' text = 'CENTER' ).
+
+      TRY.
+          lo_aggregations = go_grid->get_aggregations( ).
+          lo_aggregations->add_aggregation( 'WRBTR' ).
+        CATCH cx_salv_not_found INTO DATA(lx_message).
+          lv_text = lx_message->get_text( ).
+        CATCH cx_salv_existing INTO DATA(lx_existing).
+          lv_text = lx_existing->get_text( ).
+        CATCH cx_salv_data_error INTO DATA(lx_data_error).
+          lv_text = lx_data_error->get_text( ).
+      ENDTRY.
+
+      IF lv_text IS NOT INITIAL.
+        MESSAGE s208(00) DISPLAY LIKE 'W' WITH lv_text.
+        RETURN.
+      ENDIF.
+
+      "Events (SALV_DEMO_TABLE_EVENTS)
+      CREATE OBJECT lo_handle.
+      lo_events = go_grid->get_event( ).
+      SET HANDLER lo_handle->on_added_function FOR lo_events.
+
+      "Botões extras
+      lo_functions = go_grid->get_functions( ).
+      lo_functions->set_all( abap_true ).
+      add_function( functions = lo_functions function = c_send icon = c_icon_send text = TEXT-004 ).
+
+      "Selecionar linhas
+      lo_selections = go_grid->get_selections( ).
+      lo_selections->set_selection_mode( cl_salv_selections=>row_column ).
+    ENDIF.
+
+    go_grid->display( ).
+  ENDMETHOD.
+
+  METHOD change_colunm.
+    DATA:
+      lo_column TYPE REF TO cl_salv_column_list,
+      lv_cols   TYPE scrtext_s,
+      lv_colm   TYPE scrtext_m,
+      lv_coll   TYPE scrtext_l.
+
+    TRY.
+        lo_column ?= columns->get_column( name ).
+        IF text EQ 'HIDE'.
+          lo_column->set_visible( abap_false ).
+        ELSEIF text EQ 'CENTER'.
+          lo_column->set_alignment( if_salv_c_alignment=>centered ).
+        ELSEIF text IS NOT INITIAL.
+          lv_cols = text.
+          lv_colm = text.
+          lv_coll = text.
+          lo_column->set_short_text( lv_cols ).
+          lo_column->set_medium_text( lv_colm ).
+          lo_column->set_long_text( lv_coll ).
+        ENDIF.
+        IF len IS NOT INITIAL.
+          lo_column->set_output_length( len ).
+        ELSE.
+          lo_column->set_optimized( abap_true ).
+        ENDIF.
+        IF link IS NOT INITIAL.
+          lo_column->set_cell_type( if_salv_c_cell_type=>hotspot ).
+        ENDIF.
+      CATCH cx_salv_not_found INTO DATA(lx_message).
+        MESSAGE s208(00) WITH lx_message->get_text( ) DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD add_function.
+    DATA:
+      lv_text TYPE string.
+
+    lv_text = text.
+    TRY.
+        functions->add_function(
+          EXPORTING
+            name     = function
+            icon     = icon
+            text     = lv_text
+            tooltip  = lv_text
+            position = if_salv_c_function_position=>right_of_salv_functions
+        ).
+      CATCH cx_salv_existing INTO DATA(lx_salv_existing).
+        MESSAGE s208(00) WITH lx_salv_existing->get_text( ) DISPLAY LIKE 'E'.
+      CATCH cx_salv_wrong_call INTO DATA(lx_salv_wrong_call).
+        MESSAGE s208(00) WITH lx_salv_wrong_call->get_text( ) DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD get_email.
+    CLEAR: gv_email.
+
+    IF p_kunnr IS NOT INITIAL.
+      SELECT SINGLE adrnr FROM kna1
+        INTO @DATA(lv_adrnr)
+        WHERE kunnr EQ @p_kunnr.
+		
+      IF sy-subrc IS INITIAL AND lv_adrnr IS NOT INITIAL.
+        SELECT smtp_addr FROM adr6
+          INTO gv_email UP TO 1 ROWS
+         WHERE addrnumber EQ lv_adrnr
+           AND flgdefault EQ abap_true.
+        ENDSELECT.
+		
+        IF sy-subrc IS INITIAL.
+          TRANSLATE gv_email TO LOWER CASE.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD send_email.
+  ENDMETHOD.
+
+  METHOD get_date.
+    dout = |{ din+6(2) }/{ din+4(2) }/{ din(4) }|.
+  ENDMETHOD.
+
+  METHOD add.
+    gv_body = |{ gv_body }{ line }|.
+  ENDMETHOD.
+
+  METHOD replace_tags.
+    REPLACE ALL OCCURRENCES OF '(b)'  IN parag-line WITH '<b>'.
+    REPLACE ALL OCCURRENCES OF '(/b)' IN parag-line WITH '</b>'.
+    REPLACE ALL OCCURRENCES OF '(i)'  IN parag-line WITH '<i>'.
+    REPLACE ALL OCCURRENCES OF '(/i)' IN parag-line WITH '</i>'.
+    REPLACE ALL OCCURRENCES OF '(u)'  IN parag-line WITH '<u>'.
+    REPLACE ALL OCCURRENCES OF '(/u)' IN parag-line WITH '</u>'.
+    REPLACE ALL OCCURRENCES OF '<(>' IN parag-line WITH ''.
+    REPLACE ALL OCCURRENCES OF '<)>' IN parag-line WITH ''.
+  ENDMETHOD.
+
+  METHOD get_text.
+    CLEAR: message.
+
+    CALL FUNCTION 'READ_TEXT'
+      EXPORTING
+        id                      = 'ST'
+        language                = sy-langu
+        name                    = name
+        object                  = 'TEXT'
+      TABLES
+        lines                   = text
+      EXCEPTIONS
+        id                      = 1
+        language                = 2
+        name                    = 3
+        not_found               = 4
+        object                  = 5
+        reference_check         = 6
+        wrong_access_to_archive = 7
+        OTHERS                  = 8.
+
+    IF sy-subrc IS NOT INITIAL.
+      message = sy.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD on_added_function.
+    DATA:
+      lo_selections TYPE REF TO cl_salv_selections,
+      lt_rows       TYPE salv_t_row,
+      lt_columns    TYPE salv_t_column.
+
+    "Recupera linhas selecionas
+    lo_selections = go_grid->get_selections( ).
+    lt_rows = lo_selections->get_selected_rows( ).
+
+    IF lt_rows[] IS INITIAL.
+      MESSAGE s208(00) WITH TEXT-005 DISPLAY LIKE 'W'.
+      RETURN.
+    ENDIF.
+
+    CASE function.
+      WHEN c_send.
+        send_email( lt_rows ).
+    ENDCASE.
+
+    "Upate alv
+    CLEAR lt_rows[].
+    lo_selections->set_selected_rows( lt_rows ).
+    lo_selections->set_selected_columns( lt_columns ).
+    go_grid->refresh( refresh_mode = if_salv_c_refresh=>full ).
+  ENDMETHOD.
+
+  METHOD get_status.
+    FIELD-SYMBOLS:
+      <fs_status> TYPE any.
+
+    ASSIGN (icon) TO <fs_status>.
+    status = <fs_status>.
+  ENDMETHOD.
+
+  METHOD control_screen.
+    LOOP AT SCREEN.
+      IF screen-name EQ 'P_EMAIL'.
+        IF gv_kunnr NE p_kunnr.
+          gv_kunnr = p_kunnr.
+          p_email = gv_email.
+        ELSEIF p_email IS INITIAL.
+          p_email = gv_email.
+        ENDIF.
+        MODIFY SCREEN.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS lcl_handle IMPLEMENTATION.
+  METHOD on_added_function.
+    lcl_report=>on_added_function( e_salv_function ).
+  ENDMETHOD.
+ENDCLASS.
+
+*&---------------------------------------------------------------------*
+*& Module STATUS_9000 OUTPUT
+*&---------------------------------------------------------------------*
+MODULE status_9000 OUTPUT.
+  SET PF-STATUS 'STATUS_9000'.
+  SET TITLEBAR 'TITLEBAR_9000'.
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_9000  INPUT
+*&---------------------------------------------------------------------*
+MODULE user_command_9000 INPUT.
+  CASE ok_code.
+    WHEN 'BACK' OR 'EXIT' OR 'CANCEL'.
+      lcl_report=>custom_container_free( ).
+      LEAVE TO SCREEN 0.
+    WHEN OTHERS.
+  ENDCASE.
+  CLEAR ok_code.
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*& Module START_REPORT OUTPUT
+*&---------------------------------------------------------------------*
+MODULE start_report OUTPUT.
+  lcl_report=>first_display( ).
+ENDMODULE.
