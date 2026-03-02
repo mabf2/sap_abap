@@ -53,3 +53,8 @@ LOOP AT <it_accfi> ASSIGNING <accfi>.
   <accfi>-stkzn = abap_true.
 ENDLOOP.
 *"----------------------------------------------------------------------
+lt_dados = VALUE #( FOR lw IN lt_docref ( tabname = 'J_1BNFLIN' itmnum = lw-litmnum 
+                                          field = 'DOCREF' value = lw-zdocnum )
+                                        ( tabname = 'J_1BNFLIN' itmnum = lw-litmnum 
+                                          field = 'ITMREF' value = lw-zitmnum ) ).
+*"----------------------------------------------------------------------
